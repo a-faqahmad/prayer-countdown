@@ -48,7 +48,7 @@ object PrayerWidgetUpdater {
   fun refreshInternal(context: Context) {
     val settings = WidgetSettings.load(context)
     if (!hasLocationOrManualCity(settings)) {
-      renderAll(context, "location required", "next prayer: --", null, "--, --")
+      renderAll(context, "location required", "next prayer: --", null, "--")
       scheduleRetry(context, minutes = 5)
       return
     }
@@ -60,13 +60,13 @@ object PrayerWidgetUpdater {
         val (lastCurrent, lastNext, lastNextAt) = fallback
         if (System.currentTimeMillis() >= lastNextAt) {
           // Countdown reached zero and no new data yet: keep it pinned at zero.
-          renderAll(context, lastCurrent, lastNext, null, "--, --", "00:00:00")
+          renderAll(context, lastCurrent, lastNext, null, "--", "00:00:00")
         } else {
           // Keep prior countdown running until boundary.
-          renderAll(context, lastCurrent, lastNext, lastNextAt, "--, --")
+          renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
         }
       } else {
-        renderAll(context, "unable to load", "next prayer: --", null, "--, --")
+        renderAll(context, "unable to load", "next prayer: --", null, "--")
       }
       scheduleRetry(context, minutes = 5)
       return
@@ -195,7 +195,7 @@ object PrayerWidgetUpdater {
     val todayDay = PrayerTimesCache.getDayForDate(context, today)
     val tomorrowDay = PrayerTimesCache.getDayForDate(context, today.plusDays(1))
     if (todayDay == null) {
-      return "--, --"
+      return "--"
     }
 
     val now = LocalDateTime.now()
@@ -205,8 +205,7 @@ object PrayerWidgetUpdater {
     } else {
       todayDay.hijriLabel
     }
-    val gregorian = todayDay.gregorianLabel
-    return "$hijri, $gregorian"
+    return hijri
   }
 
   private fun attachOpenAppIntent(context: Context, views: RemoteViews) {
