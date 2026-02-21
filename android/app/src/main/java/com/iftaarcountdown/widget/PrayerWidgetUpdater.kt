@@ -48,7 +48,7 @@ object PrayerWidgetUpdater {
   fun refreshInternal(context: Context) {
     val settings = WidgetSettings.load(context)
     if (!hasLocationOrManualCity(settings)) {
-      renderAll(context, "location required", "next prayer: --", null)
+      renderAll(context, "location required", "next prayer: --", null, "--, --")
       scheduleRetry(context, minutes = 5)
       return
     }
@@ -60,26 +60,28 @@ object PrayerWidgetUpdater {
         val (lastCurrent, lastNext, lastNextAt) = fallback
         if (System.currentTimeMillis() >= lastNextAt) {
           // Countdown reached zero and no new data yet: keep it pinned at zero.
-          renderAll(context, lastCurrent, lastNext, null, "00:00:00")
+          renderAll(context, lastCurrent, lastNext, null, "--, --", "00:00:00")
         } else {
           // Keep prior countdown running until boundary.
-          renderAll(context, lastCurrent, lastNext, lastNextAt)
+          renderAll(context, lastCurrent, lastNext, lastNextAt, "--, --")
         }
       } else {
-        renderAll(context, "unable to load", "next prayer: --", null)
+        renderAll(context, "unable to load", "next prayer: --", null, "--, --")
       }
       scheduleRetry(context, minutes = 5)
       return
     }
 
     val state = buildWidgetState(prayerTimes)
+    val dateText = buildDateText(context, prayerTimes)
     val nextLabel = "next prayer: ${state.nextPrayer}"
     saveLastState(context, state.currentPrayer, nextLabel, state.nextPrayerAtMillis)
     renderAll(
       context = context,
       current = state.currentPrayer,
       next = nextLabel,
-      nextPrayerAtMillis = state.nextPrayerAtMillis
+      nextPrayerAtMillis = state.nextPrayerAtMillis,
+      dateText = dateText
     )
 
     maybeShowPrayerNotification(context, settings, state)
@@ -150,6 +152,7 @@ object PrayerWidgetUpdater {
     current: String,
     next: String,
     nextPrayerAtMillis: Long?,
+    dateText: String,
     fixedCountdown: String? = null
   ) {
     val appWidgetManager = AppWidgetManager.getInstance(context)
@@ -164,6 +167,7 @@ object PrayerWidgetUpdater {
       val views = RemoteViews(context.packageName, R.layout.prayer_widget)
       views.setTextViewText(R.id.textCurrentPrayer, current)
       views.setTextViewText(R.id.textNextPrayer, next)
+      views.setTextViewText(R.id.textDate, dateText)
       attachOpenAppIntent(context, views)
 
       if (nextPrayerAtMillis == null) {
@@ -184,6 +188,25 @@ object PrayerWidgetUpdater {
 
       appWidgetManager.updateAppWidget(id, views)
     }
+  }
+
+  private fun buildDateText(context: Context, todayTimes: PrayerTimes): String {
+    val today = LocalDate.now()
+    val todayDay = PrayerTimesCache.getDayForDate(context, today)
+    val tomorrowDay = PrayerTimesCache.getDayForDate(context, today.plusDays(1))
+    if (todayDay == null) {
+      return "--, --"
+    }
+
+    val now = LocalDateTime.now()
+    val maghribToday = LocalDateTime.of(today, todayTimes.maghrib)
+    val hijri = if (!now.isBefore(maghribToday)) {
+      tomorrowDay?.hijriLabel ?: todayDay.hijriLabel
+    } else {
+      todayDay.hijriLabel
+    }
+    val gregorian = todayDay.gregorianLabel
+    return "$hijri, $gregorian"
   }
 
   private fun attachOpenAppIntent(context: Context, views: RemoteViews) {

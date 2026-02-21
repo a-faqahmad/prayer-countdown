@@ -37,4 +37,14 @@
         android:textColor="#0D6E4C"
         android:textSize="33sp"
         android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/textDate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:text="--, --"
+        android:textColor="#555B6A"
+        android:textSize="12sp" />
 </LinearLayout>
