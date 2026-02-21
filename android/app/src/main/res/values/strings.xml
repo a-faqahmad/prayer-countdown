@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">iftaarCountdown</string>
+    <string name="app_name">Prayer Countdown</string>
+    <string name="widget_name">Prayer Countdown</string>
 </resources>

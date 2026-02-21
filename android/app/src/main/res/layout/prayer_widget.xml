@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widgetRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/textCurrentPrayer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="--"
+        android:textColor="#1A1A1A"
+        android:textSize="37sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/textNextPrayer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:text="next prayer: --"
+        android:textColor="#555B6A"
+        android:textSize="20sp" />
+
+    <Chronometer
+        android:id="@+id/textCountdown"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:textColor="#0D6E4C"
+        android:textSize="33sp"
+        android:textStyle="bold" />
+</LinearLayout>
