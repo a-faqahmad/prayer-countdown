@@ -75,7 +75,7 @@ class PrayerWidgetModule(private val reactContext: ReactApplicationContext) :
       val longitude = if (input.hasKey("longitude") && !input.isNull("longitude")) input.getDouble("longitude") else null
       val useDeviceLocation = if (input.hasKey("useDeviceLocation")) input.getBoolean("useDeviceLocation") else true
       val school = if (input.hasKey("school")) input.getInt("school") else 1
-      val notificationsEnabled = if (input.hasKey("notificationsEnabled")) input.getBoolean("notificationsEnabled") else false
+      val notificationsEnabled = if (input.hasKey("notificationsEnabled")) input.getBoolean("notificationsEnabled") else true
       val widgetEnabled = if (input.hasKey("widgetEnabled")) input.getBoolean("widgetEnabled") else true
 
       WidgetSettings.save(
@@ -350,6 +350,7 @@ class PrayerWidgetModule(private val reactContext: ReactApplicationContext) :
 
   private fun toReadableMap(value: PrayerTimes, hijri: String, gregorian: String) = Arguments.createMap().apply {
     putString("fajr", value.fajr.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")))
+    putString("sunrise", value.sunrise.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")))
     putString("dhuhr", value.dhuhr.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")))
     putString("asr", value.asr.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")))
     putString("maghrib", value.maghrib.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")))

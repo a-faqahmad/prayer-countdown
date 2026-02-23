@@ -44,6 +44,7 @@ object PrayerTimesCache {
     return CachedDay(
       times = PrayerTimes(
         fajr = LocalTime.parse(item.optString("fajr", "00:00"), timeFormat),
+        sunrise = LocalTime.parse(item.optString("sunrise", "00:00"), timeFormat),
         dhuhr = LocalTime.parse(item.optString("dhuhr", "00:00"), timeFormat),
         asr = LocalTime.parse(item.optString("asr", "00:00"), timeFormat),
         maghrib = LocalTime.parse(item.optString("maghrib", "00:00"), timeFormat),
@@ -68,6 +69,7 @@ object PrayerTimesCache {
       val day = PrayerApiClient.getPrayerDayForDate(settings, date) ?: return false
       root.put(date.format(isoDate), JSONObject().apply {
         put("fajr", day.times.fajr.format(timeFormat))
+        put("sunrise", day.times.sunrise.format(timeFormat))
         put("dhuhr", day.times.dhuhr.format(timeFormat))
         put("asr", day.times.asr.format(timeFormat))
         put("maghrib", day.times.maghrib.format(timeFormat))

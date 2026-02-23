@@ -31,6 +31,7 @@ data class WidgetState(
 
 object PrayerWidgetUpdater {
   const val ACTION_WIDGET_TICK = "com.iftaarcountdown.widget.ACTION_WIDGET_TICK"
+  const val ACTION_WIDGET_MIDNIGHT_REFRESH = "com.iftaarcountdown.widget.ACTION_WIDGET_MIDNIGHT_REFRESH"
   private const val CHANNEL_ID = "prayer_notifications"
   private const val NOTIFICATION_ID = 1100
   private const val PREFS_NAME = "widget_runtime_state"
@@ -46,9 +47,10 @@ object PrayerWidgetUpdater {
   }
 
   fun refreshInternal(context: Context) {
+    scheduleMidnightRefresh(context)
     val settings = WidgetSettings.load(context)
     if (!hasLocationOrManualCity(settings)) {
-      renderAll(context, "location required", "next prayer: --", null, "--")
+      renderAll(context, "location required", "Next, -- in", null, "--")
       scheduleRetry(context, minutes = 5)
       return
     }
@@ -66,7 +68,7 @@ object PrayerWidgetUpdater {
           renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
         }
       } else {
-        renderAll(context, "unable to load", "next prayer: --", null, "--")
+        renderAll(context, "unable to load", "Next, -- in", null, "--")
       }
       scheduleRetry(context, minutes = 5)
       return
@@ -74,7 +76,7 @@ object PrayerWidgetUpdater {
 
     val state = buildWidgetState(prayerTimes)
     val dateText = buildDateText(context, prayerTimes)
-    val nextLabel = "next prayer: ${state.nextPrayer}"
+    val nextLabel = "Next, ${state.nextPrayer} in"
     saveLastState(context, state.currentPrayer, nextLabel, state.nextPrayerAtMillis)
     renderAll(
       context = context,
@@ -100,6 +102,7 @@ object PrayerWidgetUpdater {
     val today = LocalDate.now()
 
     val fajr = LocalDateTime.of(today, prayerTimes.fajr)
+    val sunrise = LocalDateTime.of(today, prayerTimes.sunrise)
     val dhuhr = LocalDateTime.of(today, prayerTimes.dhuhr)
     val asr = LocalDateTime.of(today, prayerTimes.asr)
     val maghrib = LocalDateTime.of(today, prayerTimes.maghrib)
@@ -108,6 +111,7 @@ object PrayerWidgetUpdater {
 
     val prayerStartMoments = listOf(
       "Fajr" to fajr,
+      "Sunrise" to sunrise,
       "Dhuhr" to dhuhr,
       "Asr" to asr,
       "Maghrib" to maghrib,
@@ -116,7 +120,8 @@ object PrayerWidgetUpdater {
 
     val (currentPrayer, nextPrayer, nextMoment) = when {
       effectiveNow.isBefore(fajr) -> Triple("Isha", "Fajr", fajr)
-      effectiveNow.isBefore(dhuhr) -> Triple("Fajr", "Dhuhr", dhuhr)
+      effectiveNow.isBefore(sunrise) -> Triple("Fajr", "Sunrise", sunrise)
+      effectiveNow.isBefore(dhuhr) -> Triple("Sunrise", "Dhuhr", dhuhr)
       effectiveNow.isBefore(asr) -> Triple("Dhuhr", "Asr", asr)
       effectiveNow.isBefore(maghrib) -> Triple("Asr", "Maghrib", maghrib)
       effectiveNow.isBefore(isha) -> Triple("Maghrib", "Isha", isha)
@@ -140,7 +145,7 @@ object PrayerWidgetUpdater {
   }
 
   private fun formatDuration(duration: Duration): String {
-    val totalSeconds = duration.seconds
+    val totalSeconds = duration.seconds.coerceAtLeast(0)
     val hours = totalSeconds / 3600
     val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
@@ -276,6 +281,17 @@ object PrayerWidgetUpdater {
     scheduleAt(context, triggerMillis)
   }
 
+  private fun scheduleMidnightRefresh(context: Context) {
+    val now = LocalDateTime.now()
+    val nextMidnightMillis = now.toLocalDate()
+      .plusDays(1)
+      .atStartOfDay()
+      .atZone(ZoneId.systemDefault())
+      .toInstant()
+      .toEpochMilli()
+    scheduleMidnightAt(context, nextMidnightMillis)
+  }
+
   private fun scheduleAt(context: Context, triggerMillis: Long) {
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
@@ -323,6 +339,52 @@ object PrayerWidgetUpdater {
     }
   }
 
+  private fun scheduleMidnightAt(context: Context, triggerMillis: Long) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
+      action = ACTION_WIDGET_MIDNIGHT_REFRESH
+    }
+    val pendingIntent = PendingIntent.getBroadcast(
+      context,
+      3003,
+      intent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    alarmManager.cancel(pendingIntent)
+    val safeTrigger = triggerMillis.coerceAtLeast(System.currentTimeMillis() + 1000L)
+
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        alarmManager.setExactAndAllowWhileIdle(
+          AlarmManager.RTC_WAKEUP,
+          safeTrigger,
+          pendingIntent
+        )
+      } else {
+        alarmManager.setExact(
+          AlarmManager.RTC_WAKEUP,
+          safeTrigger,
+          pendingIntent
+        )
+      }
+    } catch (_: SecurityException) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        alarmManager.setAndAllowWhileIdle(
+          AlarmManager.RTC_WAKEUP,
+          safeTrigger,
+          pendingIntent
+        )
+      } else {
+        alarmManager.set(
+          AlarmManager.RTC_WAKEUP,
+          safeTrigger,
+          pendingIntent
+        )
+      }
+    }
+  }
+
   fun cancelSchedule(context: Context) {
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
@@ -335,6 +397,17 @@ object PrayerWidgetUpdater {
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
     alarmManager.cancel(pendingIntent)
+
+    val midnightIntent = Intent(context, PrayerUpdateReceiver::class.java).apply {
+      action = ACTION_WIDGET_MIDNIGHT_REFRESH
+    }
+    val midnightPendingIntent = PendingIntent.getBroadcast(
+      context,
+      3003,
+      midnightIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    alarmManager.cancel(midnightPendingIntent)
   }
 
   private fun saveLastState(context: Context, current: String, next: String, nextAtMillis: Long) {

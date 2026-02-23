@@ -44,7 +44,7 @@ object WidgetSettings {
       longitude = lon,
       useDeviceLocation = sharedPrefs.getBoolean(KEY_USE_DEVICE_LOCATION, true),
       school = sharedPrefs.getInt(KEY_SCHOOL, 1),
-      notificationsEnabled = sharedPrefs.getBoolean(KEY_NOTIFICATIONS_ENABLED, false),
+      notificationsEnabled = sharedPrefs.getBoolean(KEY_NOTIFICATIONS_ENABLED, true),
       widgetEnabled = sharedPrefs.getBoolean(KEY_WIDGET_ENABLED, true),
       lastNotificationKey = sharedPrefs.getString(KEY_LAST_NOTIFICATION, "") ?: ""
     )

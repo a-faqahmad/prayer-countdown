@@ -495,6 +495,7 @@ function App(): React.JSX.Element {
 
   const qiblaArrowRotation =
     qiblaDirection === null ? 0 : (qiblaDirection - qiblaHeading + 360) % 360;
+  const allPrayerRows = getAllPrayerRows(prayerTimes, new Date());
 
   if (loading) {
     return (
@@ -518,7 +519,7 @@ function App(): React.JSX.Element {
           {prayerPanelState === 'ready' ? (
             <>
               <Text style={styles.currentPrayerText}>{currentPrayerName}</Text>
-              <Text style={styles.nextPrayerText}>Next Prayer: {nextPrayerName}</Text>
+              <Text style={styles.metaLineText}>Next, {nextPrayerName} in</Text>
               <Text style={styles.countdownText}>{nextPrayerCountdown}</Text>
               <Text style={styles.dateFooterText}>{dateFooterText}</Text>
             </>
@@ -720,26 +721,32 @@ function App(): React.JSX.Element {
         <View style={styles.helpOverlay}>
           <View style={styles.timingsCard}>
             <Text style={styles.helpTitle}>All Prayer Timings</Text>
-            <View style={styles.timingRow}>
-              <Text style={styles.timingName}>Fajr</Text>
-              <Text style={styles.timingValue}>{prayerTimes?.fajr ?? '--:--'}</Text>
-            </View>
-            <View style={styles.timingRow}>
-              <Text style={styles.timingName}>Dhuhr</Text>
-              <Text style={styles.timingValue}>{prayerTimes?.dhuhr ?? '--:--'}</Text>
-            </View>
-            <View style={styles.timingRow}>
-              <Text style={styles.timingName}>Asr</Text>
-              <Text style={styles.timingValue}>{prayerTimes?.asr ?? '--:--'}</Text>
-            </View>
-            <View style={styles.timingRow}>
-              <Text style={styles.timingName}>Maghrib</Text>
-              <Text style={styles.timingValue}>{prayerTimes?.maghrib ?? '--:--'}</Text>
-            </View>
-            <View style={styles.timingRow}>
-              <Text style={styles.timingName}>Isha</Text>
-              <Text style={styles.timingValue}>{prayerTimes?.isha ?? '--:--'}</Text>
-            </View>
+            {allPrayerRows.map(row => (
+              <View
+                key={row.name}
+                style={[
+                  styles.timingRow,
+                  row.isCurrent && styles.timingRowCurrent,
+                  row.isPassed && styles.timingRowPassed,
+                ]}>
+                <Text
+                  style={[
+                    styles.timingName,
+                    row.isPassed && styles.timingNamePassed,
+                    row.isCurrent && styles.timingNameCurrent,
+                  ]}>
+                  {row.name}
+                </Text>
+                <Text
+                  style={[
+                    styles.timingValue,
+                    row.isPassed && styles.timingValuePassed,
+                    row.isCurrent && styles.timingValueCurrent,
+                  ]}>
+                  {row.time}
+                </Text>
+              </View>
+            ))}
             <TouchableOpacity
               style={styles.helpCloseButton}
               onPress={() => setAllPrayerTimesVisible(false)}>
@@ -829,6 +836,8 @@ function getPrayerSnapshot(times: PrayerTimes, now: Date): {
   countdown: string;
 } {
   const fajr = dateAt(now, times.fajr);
+  const hasSunrise = isValidHhmm(times.sunrise);
+  const sunrise = hasSunrise ? dateAt(now, times.sunrise) : null;
   const dhuhr = dateAt(now, times.dhuhr);
   const asr = dateAt(now, times.asr);
   const maghrib = dateAt(now, times.maghrib);
@@ -843,8 +852,12 @@ function getPrayerSnapshot(times: PrayerTimes, now: Date): {
     currentPrayer = 'Isha';
     nextPrayer = 'Fajr';
     nextMoment = fajr;
-  } else if (now < dhuhr) {
+  } else if (sunrise && now < sunrise) {
     currentPrayer = 'Fajr';
+    nextPrayer = 'Sunrise';
+    nextMoment = sunrise;
+  } else if (now < dhuhr) {
+    currentPrayer = sunrise ? 'Sunrise' : 'Fajr';
     nextPrayer = 'Dhuhr';
     nextMoment = dhuhr;
   } else if (now < asr) {
@@ -878,6 +891,17 @@ function getPrayerSnapshot(times: PrayerTimes, now: Date): {
 }
 
 function dateAt(base: Date, hhmm: string): Date {
+  if (!isValidHhmm(hhmm)) {
+    return new Date(
+      base.getFullYear(),
+      base.getMonth(),
+      base.getDate(),
+      0,
+      0,
+      0,
+      0,
+    );
+  }
   const [h, m] = hhmm.split(':').map(part => parseInt(part, 10) || 0);
   return new Date(
     base.getFullYear(),
@@ -890,10 +914,86 @@ function dateAt(base: Date, hhmm: string): Date {
   );
 }
 
+function isValidHhmm(value?: string): value is string {
+  return typeof value === 'string' && value.includes(':');
+}
+
+type PrayerRow = {
+  name: string;
+  time: string;
+  isPassed: boolean;
+  isCurrent: boolean;
+};
+
+function getAllPrayerRows(times: PrayerTimes | null, now: Date): PrayerRow[] {
+  const entries = [
+    {name: 'Fajr', key: 'fajr'},
+    {name: 'Sunrise', key: 'sunrise'},
+    {name: 'Dhuhr', key: 'dhuhr'},
+    {name: 'Asr', key: 'asr'},
+    {name: 'Maghrib', key: 'maghrib'},
+    {name: 'Isha', key: 'isha'},
+  ] as const;
+
+  if (!times) {
+    return entries.map(entry => ({
+      name: entry.name,
+      time: '--:--',
+      isPassed: false,
+      isCurrent: false,
+    }));
+  }
+
+  const starts = entries.map(entry => {
+    const value = times[entry.key];
+    return isValidHhmm(value) ? dateAt(now, value) : null;
+  });
+
+  const firstStart = starts[0];
+  const lastValidIndex = (() => {
+    for (let i = starts.length - 1; i >= 0; i -= 1) {
+      if (starts[i]) {
+        return i;
+      }
+    }
+    return -1;
+  })();
+
+  let currentIndex = starts.findIndex((start, index) => {
+    if (!start) {
+      return false;
+    }
+    const next = starts[index + 1];
+    if (!next) {
+      return now >= start;
+    }
+    return now >= start && now < next;
+  });
+
+  // Between midnight and Fajr, keep previous day's Isha active.
+  if (currentIndex < 0 && firstStart && now < firstStart && lastValidIndex >= 0) {
+    currentIndex = lastValidIndex;
+  }
+
+  return entries.map((entry, index) => {
+    const rawTime = times[entry.key];
+    const time = isValidHhmm(rawTime) ? rawTime : '--:--';
+    const isCurrent = index === currentIndex;
+    const isPassed = currentIndex >= 0 ? index < currentIndex : false;
+    return {
+      name: entry.name,
+      time,
+      isPassed,
+      isCurrent,
+    };
+  });
+}
+
 function formatDuration(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
+  const safeSeconds = Math.max(0, totalSeconds);
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(
     2,
     '0',
@@ -995,7 +1095,7 @@ const styles = StyleSheet.create({
     color: '#111111',
     textAlign: 'center',
   },
-  nextPrayerText: {
+  metaLineText: {
     marginTop: 2,
     fontSize: 16,
     color: '#5A5A5A',
@@ -1198,16 +1298,38 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+  },
+  timingRowCurrent: {
+    borderWidth: 1,
+    borderColor: '#B9E3C8',
+    backgroundColor: '#F7FCF9',
+  },
+  timingRowPassed: {
+    opacity: 0.42,
   },
   timingName: {
     fontSize: 15,
     color: '#222222',
     fontWeight: '600',
   },
+  timingNamePassed: {
+    color: '#7F8590',
+  },
+  timingNameCurrent: {
+    color: '#196A39',
+  },
   timingValue: {
     fontSize: 15,
     color: '#0D6E4C',
     fontWeight: '700',
+  },
+  timingValuePassed: {
+    color: '#7A8495',
+  },
+  timingValueCurrent: {
+    color: '#196A39',
   },
   helpCloseButton: {
     marginTop: 10,

@@ -8,6 +8,7 @@ class PrayerUpdateReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent?) {
     when (intent?.action) {
       PrayerTimesCache.ACTION_SYNC_CACHE -> PrayerTimesCache.onSyncAlarm(context)
+      PrayerWidgetUpdater.ACTION_WIDGET_MIDNIGHT_REFRESH -> PrayerWidgetUpdater.startRefresh(context)
       Intent.ACTION_BOOT_COMPLETED,
       Intent.ACTION_TIMEZONE_CHANGED,
       Intent.ACTION_TIME_CHANGED,

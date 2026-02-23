@@ -12,6 +12,7 @@ import java.time.format.DateTimeFormatter
 
 data class PrayerTimes(
   val fajr: LocalTime,
+  val sunrise: LocalTime,
   val dhuhr: LocalTime,
   val asr: LocalTime,
   val maghrib: LocalTime,
@@ -83,6 +84,7 @@ object PrayerApiClient {
     return PrayerDay(
       times = PrayerTimes(
         fajr = parseTime(timings.getString("Fajr")),
+        sunrise = parseTime(timings.getString("Sunrise")),
         dhuhr = parseTime(timings.getString("Dhuhr")),
         asr = parseTime(timings.getString("Asr")),
         maghrib = parseTime(timings.getString("Maghrib")),

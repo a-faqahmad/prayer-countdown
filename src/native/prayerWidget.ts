@@ -8,6 +8,7 @@ type Coordinates = {
 
 export type PrayerTimes = {
   fajr: string;
+  sunrise: string;
   dhuhr: string;
   asr: string;
   maghrib: string;
