@@ -53,9 +53,11 @@ function App(): React.JSX.Element {
   const [nextPrayerName, setNextPrayerName] = useState('--');
   const [nextPrayerCountdown, setNextPrayerCountdown] = useState('--:--:--');
   const [dateFooterText, setDateFooterText] = useState('--');
+  const [locationSetupResolved, setLocationSetupResolved] = useState(false);
   const [prayerPanelState, setPrayerPanelState] =
     useState<PrayerPanelState>('loading');
   const autoLocationCheckedRef = useRef(false);
+  const notificationInitAttemptedRef = useRef(false);
   const lastPersistedSettingsRef = useRef('');
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -134,11 +136,13 @@ function App(): React.JSX.Element {
 
     if (Platform.OS !== 'android') {
       autoLocationCheckedRef.current = true;
+      setLocationSetupResolved(true);
       return;
     }
 
     if (hasConfiguredLocation(settings)) {
       autoLocationCheckedRef.current = true;
+      setLocationSetupResolved(true);
       return;
     }
 
@@ -175,11 +179,64 @@ function App(): React.JSX.Element {
         setPrayerPanelState('location_required');
       } finally {
         setDetecting(false);
+        setLocationSetupResolved(true);
       }
     };
 
     autoDetect();
   }, [loading, settings]);
+
+  useEffect(() => {
+    if (loading || !locationSetupResolved || notificationInitAttemptedRef.current) {
+      return;
+    }
+
+    if (Platform.OS !== 'android') {
+      notificationInitAttemptedRef.current = true;
+      return;
+    }
+
+    const ensureNotificationPermission = async () => {
+      const sdkVersion =
+        typeof Platform.Version === 'number' ? Platform.Version : 0;
+      if (sdkVersion < 33) {
+        if (!settings.notificationsEnabled) {
+          updateField('notificationsEnabled', true);
+        }
+        notificationInitAttemptedRef.current = true;
+        return;
+      }
+
+      const alreadyGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+      );
+      if (alreadyGranted) {
+        if (!settings.notificationsEnabled) {
+          updateField('notificationsEnabled', true);
+        }
+        setErrorMessage('');
+        notificationInitAttemptedRef.current = true;
+        return;
+      }
+
+      const granted = await requestNotificationPermission();
+      if (granted) {
+        updateField('notificationsEnabled', true);
+        setErrorMessage('');
+      } else {
+        updateField('notificationsEnabled', false);
+        setErrorMessage(
+          'Please grant notifications access to application in your settings.',
+        );
+      }
+      notificationInitAttemptedRef.current = true;
+    };
+
+    ensureNotificationPermission().catch(error => {
+      console.error(error);
+      notificationInitAttemptedRef.current = true;
+    });
+  }, [loading, locationSetupResolved, settings.notificationsEnabled]);
 
   useEffect(() => {
     if (!qiblaVisible) {
@@ -395,6 +452,7 @@ function App(): React.JSX.Element {
       setErrorMessage('Could not detect location. Please select city manually.');
     } finally {
       setDetecting(false);
+      setLocationSetupResolved(true);
     }
   };
 
@@ -484,7 +542,9 @@ function App(): React.JSX.Element {
 
     const granted = await requestNotificationPermission();
     if (!granted) {
-      setErrorMessage('Notification permission denied. Notifications remain off.');
+      setErrorMessage(
+        'Please grant notifications access to application in your settings.',
+      );
       updateField('notificationsEnabled', false);
       return;
     }

@@ -23,6 +23,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   longitude: null,
   useDeviceLocation: true,
   school: 1,
-  notificationsEnabled: true,
+  notificationsEnabled: false,
   widgetEnabled: true,
 };

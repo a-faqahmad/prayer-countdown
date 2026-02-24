@@ -75,7 +75,7 @@ class PrayerWidgetModule(private val reactContext: ReactApplicationContext) :
       val longitude = if (input.hasKey("longitude") && !input.isNull("longitude")) input.getDouble("longitude") else null
       val useDeviceLocation = if (input.hasKey("useDeviceLocation")) input.getBoolean("useDeviceLocation") else true
       val school = if (input.hasKey("school")) input.getInt("school") else 1
-      val notificationsEnabled = if (input.hasKey("notificationsEnabled")) input.getBoolean("notificationsEnabled") else true
+      val notificationsEnabled = if (input.hasKey("notificationsEnabled")) input.getBoolean("notificationsEnabled") else false
       val widgetEnabled = if (input.hasKey("widgetEnabled")) input.getBoolean("widgetEnabled") else true
 
       WidgetSettings.save(
