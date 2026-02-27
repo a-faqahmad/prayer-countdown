@@ -46,6 +46,9 @@
         <intent-filter>
           <action android:name="com.iftaarcountdown.widget.ACTION_WIDGET_TICK" />
           <action android:name="com.iftaarcountdown.widget.ACTION_SYNC_CACHE" />
+          <action android:name="com.iftaarcountdown.widget.ACTION_WIDGET_MIDNIGHT_REFRESH" />
+          <action android:name="com.iftaarcountdown.widget.ACTION_WIDGET_SAFETY_REFRESH" />
+          <action android:name="com.iftaarcountdown.widget.ACTION_WIDGET_FREEZE_ZERO" />
           <action android:name="android.intent.action.BOOT_COMPLETED" />
           <action android:name="android.intent.action.TIME_SET" />
           <action android:name="android.intent.action.TIMEZONE_CHANGED" />

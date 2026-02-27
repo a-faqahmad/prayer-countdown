@@ -32,6 +32,8 @@ data class WidgetState(
 object PrayerWidgetUpdater {
   const val ACTION_WIDGET_TICK = "com.iftaarcountdown.widget.ACTION_WIDGET_TICK"
   const val ACTION_WIDGET_MIDNIGHT_REFRESH = "com.iftaarcountdown.widget.ACTION_WIDGET_MIDNIGHT_REFRESH"
+  const val ACTION_WIDGET_FREEZE_ZERO = "com.iftaarcountdown.widget.ACTION_WIDGET_FREEZE_ZERO"
+  const val ACTION_WIDGET_SAFETY_REFRESH = "com.iftaarcountdown.widget.ACTION_WIDGET_SAFETY_REFRESH"
   private const val CHANNEL_ID = "prayer_notifications"
   private const val NOTIFICATION_ID = 1100
   private const val PREFS_NAME = "widget_runtime_state"
@@ -88,6 +90,22 @@ object PrayerWidgetUpdater {
 
     maybeShowPrayerNotification(context, settings, state)
     scheduleNextPrayerUpdate(context, state.nextPrayerAtMillis)
+    scheduleZeroFreeze(context, state.nextPrayerAtMillis)
+    scheduleSafetyRefresh(context, state.nextPrayerAtMillis)
+  }
+
+  fun freezeAtZero(context: Context) {
+    val fallback = loadLastState(context)
+    if (fallback != null) {
+      val (lastCurrent, lastNext, lastNextAt) = fallback
+      val deltaToSavedNext = lastNextAt - System.currentTimeMillis()
+      if (deltaToSavedNext <= 30_000L) {
+        renderAll(context, lastCurrent, lastNext, null, "--", "00:00:00")
+      }
+    }
+    // Trigger a near-immediate refresh so the next prayer starts quickly after clamping at zero.
+    scheduleAt(context, System.currentTimeMillis() + 1200L)
+    scheduleSafetyRefresh(context, System.currentTimeMillis() + 60_000L)
   }
 
   private fun hasLocationOrManualCity(settings: UserSettings): Boolean {
@@ -177,12 +195,14 @@ object PrayerWidgetUpdater {
 
       if (nextPrayerAtMillis == null) {
         views.setTextViewText(R.id.textCountdown, fixedCountdown ?: "--:--:--")
+        views.setChronometerCountDown(R.id.textCountdown, false)
         views.setChronometer(R.id.textCountdown, SystemClock.elapsedRealtime(), null, false)
       } else {
         val remainingMillis = (nextPrayerAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
         if (remainingMillis <= 0L) {
           // Never allow forward/backward drift around zero.
           views.setTextViewText(R.id.textCountdown, "00:00:00")
+          views.setChronometerCountDown(R.id.textCountdown, false)
           views.setChronometer(R.id.textCountdown, SystemClock.elapsedRealtime(), null, false)
         } else {
           val base = SystemClock.elapsedRealtime() + remainingMillis
@@ -290,6 +310,108 @@ object PrayerWidgetUpdater {
       .toInstant()
       .toEpochMilli()
     scheduleMidnightAt(context, nextMidnightMillis)
+  }
+
+  private fun scheduleZeroFreeze(context: Context, nextPrayerAtMillis: Long) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
+      action = ACTION_WIDGET_FREEZE_ZERO
+    }
+    val pendingIntent = PendingIntent.getBroadcast(
+      context,
+      3005,
+      intent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    alarmManager.cancel(pendingIntent)
+
+    val remainingMillis = (nextPrayerAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+    val triggerElapsed = (SystemClock.elapsedRealtime() + remainingMillis + 20L)
+      .coerceAtLeast(SystemClock.elapsedRealtime() + 1000L)
+
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        alarmManager.setExactAndAllowWhileIdle(
+          AlarmManager.ELAPSED_REALTIME_WAKEUP,
+          triggerElapsed,
+          pendingIntent
+        )
+      } else {
+        alarmManager.setExact(
+          AlarmManager.ELAPSED_REALTIME_WAKEUP,
+          triggerElapsed,
+          pendingIntent
+        )
+      }
+    } catch (_: SecurityException) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        alarmManager.setAndAllowWhileIdle(
+          AlarmManager.ELAPSED_REALTIME_WAKEUP,
+          triggerElapsed,
+          pendingIntent
+        )
+      } else {
+        alarmManager.set(
+          AlarmManager.ELAPSED_REALTIME_WAKEUP,
+          triggerElapsed,
+          pendingIntent
+        )
+      }
+    }
+  }
+
+  private fun scheduleSafetyRefresh(context: Context, nextPrayerAtMillis: Long) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
+      action = ACTION_WIDGET_SAFETY_REFRESH
+    }
+    val pendingIntent = PendingIntent.getBroadcast(
+      context,
+      3004,
+      intent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    alarmManager.cancel(pendingIntent)
+    val now = System.currentTimeMillis()
+    val remaining = (nextPrayerAtMillis - now).coerceAtLeast(0L)
+    val interval = when {
+      remaining <= 60_000L -> 5_000L
+      remaining <= 5L * 60_000L -> 15_000L
+      else -> 60_000L
+    }
+    val triggerMillis = now + interval
+
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        alarmManager.setExactAndAllowWhileIdle(
+          AlarmManager.RTC_WAKEUP,
+          triggerMillis,
+          pendingIntent
+        )
+      } else {
+        alarmManager.setExact(
+          AlarmManager.RTC_WAKEUP,
+          triggerMillis,
+          pendingIntent
+        )
+      }
+    } catch (_: SecurityException) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        alarmManager.setAndAllowWhileIdle(
+          AlarmManager.RTC_WAKEUP,
+          triggerMillis,
+          pendingIntent
+        )
+      } else {
+        alarmManager.set(
+          AlarmManager.RTC_WAKEUP,
+          triggerMillis,
+          pendingIntent
+        )
+      }
+    }
   }
 
   private fun scheduleAt(context: Context, triggerMillis: Long) {
@@ -408,6 +530,28 @@ object PrayerWidgetUpdater {
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
     alarmManager.cancel(midnightPendingIntent)
+
+    val safetyIntent = Intent(context, PrayerUpdateReceiver::class.java).apply {
+      action = ACTION_WIDGET_SAFETY_REFRESH
+    }
+    val safetyPendingIntent = PendingIntent.getBroadcast(
+      context,
+      3004,
+      safetyIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    alarmManager.cancel(safetyPendingIntent)
+
+    val freezeIntent = Intent(context, PrayerUpdateReceiver::class.java).apply {
+      action = ACTION_WIDGET_FREEZE_ZERO
+    }
+    val freezePendingIntent = PendingIntent.getBroadcast(
+      context,
+      3005,
+      freezeIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    alarmManager.cancel(freezePendingIntent)
   }
 
   private fun saveLastState(context: Context, current: String, next: String, nextAtMillis: Long) {
