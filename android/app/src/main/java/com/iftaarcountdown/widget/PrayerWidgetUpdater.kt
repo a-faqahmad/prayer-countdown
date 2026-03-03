@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import com.iftaarcountdown.R
@@ -63,8 +64,8 @@ object PrayerWidgetUpdater {
       if (fallback != null) {
         val (lastCurrent, lastNext, lastNextAt) = fallback
         if (System.currentTimeMillis() >= lastNextAt) {
-          // Countdown reached zero and no new data yet: keep it pinned at zero.
-          renderAll(context, lastCurrent, lastNext, null, "--", "00:00:00")
+          // Countdown reached zero and no new data yet: show end-state message.
+          renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
         } else {
           // Keep prior countdown running until boundary.
           renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
@@ -188,31 +189,53 @@ object PrayerWidgetUpdater {
 
     ids.forEach { id ->
       val views = RemoteViews(context.packageName, R.layout.prayer_widget)
-      views.setTextViewText(R.id.textCurrentPrayer, current)
-      views.setTextViewText(R.id.textNextPrayer, next)
-      views.setTextViewText(R.id.textDate, dateText)
-      attachOpenAppIntent(context, views)
+      val nowMillis = System.currentTimeMillis()
+      val shouldShowEndedState = nextPrayerAtMillis != null && (nextPrayerAtMillis - nowMillis) <= 0L
 
-      if (nextPrayerAtMillis == null) {
-        views.setTextViewText(R.id.textCountdown, fixedCountdown ?: "--:--:--")
+      if (shouldShowEndedState) {
+        val currentAsNext = extractNextPrayerName(next) ?: current
+        views.setTextViewText(R.id.textCurrentPrayer, currentAsNext)
+        views.setTextViewText(R.id.textEndedStatus, "$current time just ended")
+        views.setViewVisibility(R.id.textNextPrayer, View.GONE)
+        views.setViewVisibility(R.id.textCountdown, View.GONE)
+        views.setViewVisibility(R.id.textEndedStatus, View.VISIBLE)
         views.setChronometerCountDown(R.id.textCountdown, false)
         views.setChronometer(R.id.textCountdown, SystemClock.elapsedRealtime(), null, false)
       } else {
-        val remainingMillis = (nextPrayerAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
-        if (remainingMillis <= 0L) {
-          // Never allow forward/backward drift around zero.
-          views.setTextViewText(R.id.textCountdown, "00:00:00")
+        views.setTextViewText(R.id.textCurrentPrayer, current)
+        views.setTextViewText(R.id.textNextPrayer, next)
+        views.setViewVisibility(R.id.textNextPrayer, View.VISIBLE)
+        views.setViewVisibility(R.id.textCountdown, View.VISIBLE)
+        views.setViewVisibility(R.id.textEndedStatus, View.GONE)
+
+        if (nextPrayerAtMillis == null) {
+          views.setTextViewText(R.id.textCountdown, fixedCountdown ?: "--:--:--")
           views.setChronometerCountDown(R.id.textCountdown, false)
           views.setChronometer(R.id.textCountdown, SystemClock.elapsedRealtime(), null, false)
         } else {
-          val base = SystemClock.elapsedRealtime() + remainingMillis
-          views.setChronometerCountDown(R.id.textCountdown, true)
-          views.setChronometer(R.id.textCountdown, base, null, true)
+          val remainingMillis = (nextPrayerAtMillis - nowMillis).coerceAtLeast(0L)
+          if (remainingMillis <= 0L) {
+            views.setTextViewText(R.id.textCountdown, "00:00:00")
+            views.setChronometerCountDown(R.id.textCountdown, false)
+            views.setChronometer(R.id.textCountdown, SystemClock.elapsedRealtime(), null, false)
+          } else {
+            val base = SystemClock.elapsedRealtime() + remainingMillis
+            views.setChronometerCountDown(R.id.textCountdown, true)
+            views.setChronometer(R.id.textCountdown, base, null, true)
+          }
         }
       }
 
+      views.setTextViewText(R.id.textDate, dateText)
+      attachOpenAppIntent(context, views)
+
       appWidgetManager.updateAppWidget(id, views)
     }
+  }
+
+  private fun extractNextPrayerName(nextLabel: String): String? {
+    val regex = Regex("^Next,\\s*(.+?)\\s+in$")
+    return regex.find(nextLabel)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
   }
 
   private fun buildDateText(context: Context, todayTimes: PrayerTimes): String {
