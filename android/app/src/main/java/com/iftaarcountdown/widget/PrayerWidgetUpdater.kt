@@ -41,6 +41,14 @@ object PrayerWidgetUpdater {
   private const val KEY_LAST_CURRENT = "last_current"
   private const val KEY_LAST_NEXT = "last_next"
   private const val KEY_LAST_NEXT_AT = "last_next_at"
+
+  // The widget switches to the next prayer this many seconds AFTER its start time,
+  // never before. The countdown still reaches 00:00:00 at the exact prayer time and
+  // holds there for the grace second, then advances. Biasing late (not early) means
+  // iftar/Maghrib is never shown as arrived before it actually is.
+  private const val BOUNDARY_GRACE_SECONDS = 1L
+  private const val BOUNDARY_GRACE_MILLIS = BOUNDARY_GRACE_SECONDS * 1000L
+
   private val backgroundExecutor = Executors.newSingleThreadExecutor()
 
   fun startRefresh(context: Context) {
@@ -63,13 +71,9 @@ object PrayerWidgetUpdater {
       val fallback = loadLastState(context)
       if (fallback != null) {
         val (lastCurrent, lastNext, lastNextAt) = fallback
-        if (System.currentTimeMillis() >= lastNextAt) {
-          // Countdown reached zero and no new data yet: show end-state message.
-          renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
-        } else {
-          // Keep prior countdown running until boundary.
-          renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
-        }
+        // renderAll keeps the prior countdown running before the boundary and clamps
+        // to the ended state at/after it, so it can never tick into the negatives here.
+        renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
       } else {
         renderAll(context, "unable to load", "Next, -- in", null, "--")
       }
@@ -100,13 +104,16 @@ object PrayerWidgetUpdater {
     if (fallback != null) {
       val (lastCurrent, lastNext, lastNextAt) = fallback
       val deltaToSavedNext = lastNextAt - System.currentTimeMillis()
-      if (deltaToSavedNext <= 30_000L) {
+      // Once we are at (or within ~1s of) the saved boundary, hard-clamp the
+      // chronometer to 00:00:00. No upper bound on lateness: however delayed this
+      // fires, the widget shows a frozen zero instead of ticking into the negatives.
+      if (deltaToSavedNext <= 1_000L) {
         renderAll(context, lastCurrent, lastNext, null, "--", "00:00:00")
       }
     }
-    // Trigger a near-immediate refresh so the next prayer starts quickly after clamping at zero.
-    scheduleAt(context, System.currentTimeMillis() + 1200L)
-    scheduleSafetyRefresh(context, System.currentTimeMillis() + 60_000L)
+    // Recompute from the local cache. The countdown holds at 00:00:00 through the
+    // grace second and only advances to the next prayer once it has fully elapsed.
+    startRefresh(context)
   }
 
   private fun hasLocationOrManualCity(settings: UserSettings): Boolean {
@@ -117,7 +124,9 @@ object PrayerWidgetUpdater {
 
   private fun buildWidgetState(prayerTimes: PrayerTimes): WidgetState {
     val now = LocalDateTime.now()
-    val effectiveNow = now.plusSeconds(1)
+    // Subtract the grace so a prayer only becomes "current" once now is past its
+    // start time by BOUNDARY_GRACE_SECONDS — the switch happens late, never early.
+    val effectiveNow = now.minusSeconds(BOUNDARY_GRACE_SECONDS)
     val today = LocalDate.now()
 
     val fajr = LocalDateTime.of(today, prayerTimes.fajr)
@@ -190,7 +199,12 @@ object PrayerWidgetUpdater {
     ids.forEach { id ->
       val views = RemoteViews(context.packageName, R.layout.prayer_widget)
       val nowMillis = System.currentTimeMillis()
-      val shouldShowEndedState = nextPrayerAtMillis != null && (nextPrayerAtMillis - nowMillis) <= 0L
+      // Only flip to the "just ended" / next-prayer state once we are a full grace
+      // period past the boundary. During the grace second the countdown holds at
+      // 00:00:00 on the current prayer (handled by the remaining<=0 branch below),
+      // so the next prayer is never surfaced early.
+      val shouldShowEndedState =
+        nextPrayerAtMillis != null && (nextPrayerAtMillis - nowMillis) <= -BOUNDARY_GRACE_MILLIS
 
       if (shouldShowEndedState) {
         val currentAsNext = extractNextPrayerName(next) ?: current
@@ -336,7 +350,6 @@ object PrayerWidgetUpdater {
   }
 
   private fun scheduleZeroFreeze(context: Context, nextPrayerAtMillis: Long) {
-    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
       action = ACTION_WIDGET_FREEZE_ZERO
     }
@@ -347,45 +360,16 @@ object PrayerWidgetUpdater {
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    alarmManager.cancel(pendingIntent)
-
     val remainingMillis = (nextPrayerAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+    // Elapsed-realtime clock matches the Chronometer's base, so this lands right on
+    // the boundary regardless of any wall-clock drift.
     val triggerElapsed = (SystemClock.elapsedRealtime() + remainingMillis + 20L)
       .coerceAtLeast(SystemClock.elapsedRealtime() + 1000L)
 
-    try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setExactAndAllowWhileIdle(
-          AlarmManager.ELAPSED_REALTIME_WAKEUP,
-          triggerElapsed,
-          pendingIntent
-        )
-      } else {
-        alarmManager.setExact(
-          AlarmManager.ELAPSED_REALTIME_WAKEUP,
-          triggerElapsed,
-          pendingIntent
-        )
-      }
-    } catch (_: SecurityException) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setAndAllowWhileIdle(
-          AlarmManager.ELAPSED_REALTIME_WAKEUP,
-          triggerElapsed,
-          pendingIntent
-        )
-      } else {
-        alarmManager.set(
-          AlarmManager.ELAPSED_REALTIME_WAKEUP,
-          triggerElapsed,
-          pendingIntent
-        )
-      }
-    }
+    scheduleExact(context, AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerElapsed, pendingIntent)
   }
 
   private fun scheduleSafetyRefresh(context: Context, nextPrayerAtMillis: Long) {
-    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
       action = ACTION_WIDGET_SAFETY_REFRESH
     }
@@ -396,49 +380,17 @@ object PrayerWidgetUpdater {
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    alarmManager.cancel(pendingIntent)
     val now = System.currentTimeMillis()
     val remaining = (nextPrayerAtMillis - now).coerceAtLeast(0L)
-    val interval = when {
-      remaining <= 60_000L -> 5_000L
-      remaining <= 5L * 60_000L -> 15_000L
-      else -> 60_000L
-    }
-    val triggerMillis = now + interval
-
-    try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setExactAndAllowWhileIdle(
-          AlarmManager.RTC_WAKEUP,
-          triggerMillis,
-          pendingIntent
-        )
-      } else {
-        alarmManager.setExact(
-          AlarmManager.RTC_WAKEUP,
-          triggerMillis,
-          pendingIntent
-        )
-      }
-    } catch (_: SecurityException) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setAndAllowWhileIdle(
-          AlarmManager.RTC_WAKEUP,
-          triggerMillis,
-          pendingIntent
-        )
-      } else {
-        alarmManager.set(
-          AlarmManager.RTC_WAKEUP,
-          triggerMillis,
-          pendingIntent
-        )
-      }
-    }
+    // This is only a coarse correctness net now. The exact boundary alarm performs
+    // the actual swap; keeping this infrequent avoids burning the per-app Doze
+    // allow-while-idle quota, which previously starved the boundary alarm and let
+    // the chronometer run past zero into the negatives.
+    val interval = if (remaining <= 2L * 60_000L) 60_000L else 5L * 60_000L
+    scheduleExact(context, AlarmManager.RTC_WAKEUP, now + interval, pendingIntent)
   }
 
   private fun scheduleAt(context: Context, triggerMillis: Long) {
-    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
       action = ACTION_WIDGET_TICK
     }
@@ -448,44 +400,11 @@ object PrayerWidgetUpdater {
       intent,
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
-
-    alarmManager.cancel(pendingIntent)
-
     val safeTrigger = triggerMillis.coerceAtLeast(System.currentTimeMillis() + 1000L)
-
-    try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setExactAndAllowWhileIdle(
-          AlarmManager.RTC_WAKEUP,
-          safeTrigger,
-          pendingIntent
-        )
-      } else {
-        alarmManager.setExact(
-          AlarmManager.RTC_WAKEUP,
-          safeTrigger,
-          pendingIntent
-        )
-      }
-    } catch (_: SecurityException) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setAndAllowWhileIdle(
-          AlarmManager.RTC_WAKEUP,
-          safeTrigger,
-          pendingIntent
-        )
-      } else {
-        alarmManager.set(
-          AlarmManager.RTC_WAKEUP,
-          safeTrigger,
-          pendingIntent
-        )
-      }
-    }
+    scheduleExact(context, AlarmManager.RTC_WAKEUP, safeTrigger, pendingIntent)
   }
 
   private fun scheduleMidnightAt(context: Context, triggerMillis: Long) {
-    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
       action = ACTION_WIDGET_MIDNIGHT_REFRESH
     }
@@ -495,38 +414,40 @@ object PrayerWidgetUpdater {
       intent,
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
-
-    alarmManager.cancel(pendingIntent)
     val safeTrigger = triggerMillis.coerceAtLeast(System.currentTimeMillis() + 1000L)
+    scheduleExact(context, AlarmManager.RTC_WAKEUP, safeTrigger, pendingIntent)
+  }
+
+  /**
+   * Schedules a wake-up that fires on time even in Doze. With USE_EXACT_ALARM the
+   * device grants exact scheduling, so the boundary refresh is no longer silently
+   * downgraded to an inexact (heavily deferred) alarm. If exact scheduling is ever
+   * unavailable we fall back to an inexact allow-while-idle alarm; the zero-clamp
+   * still guarantees the countdown never displays a negative value.
+   */
+  private fun scheduleExact(
+    context: Context,
+    type: Int,
+    triggerMillis: Long,
+    pendingIntent: PendingIntent
+  ) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    alarmManager.cancel(pendingIntent)
+
+    val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      alarmManager.canScheduleExactAlarms()
+    } else {
+      true
+    }
 
     try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setExactAndAllowWhileIdle(
-          AlarmManager.RTC_WAKEUP,
-          safeTrigger,
-          pendingIntent
-        )
+      if (canScheduleExact) {
+        alarmManager.setExactAndAllowWhileIdle(type, triggerMillis, pendingIntent)
       } else {
-        alarmManager.setExact(
-          AlarmManager.RTC_WAKEUP,
-          safeTrigger,
-          pendingIntent
-        )
+        alarmManager.setAndAllowWhileIdle(type, triggerMillis, pendingIntent)
       }
     } catch (_: SecurityException) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setAndAllowWhileIdle(
-          AlarmManager.RTC_WAKEUP,
-          safeTrigger,
-          pendingIntent
-        )
-      } else {
-        alarmManager.set(
-          AlarmManager.RTC_WAKEUP,
-          safeTrigger,
-          pendingIntent
-        )
-      }
+      alarmManager.setAndAllowWhileIdle(type, triggerMillis, pendingIntent)
     }
   }
 
