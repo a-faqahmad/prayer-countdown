@@ -6,57 +6,106 @@
     android:background="@drawable/widget_background"
     android:gravity="center"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:paddingLeft="20dp"
+    android:paddingTop="18dp"
+    android:paddingRight="20dp"
+    android:paddingBottom="18dp">
 
-    <TextView
-        android:id="@+id/textCurrentPrayer"
-        android:layout_width="match_parent"
+    <LinearLayout
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:gravity="center"
-        android:text="--"
-        android:textColor="#1A1A1A"
-        android:textSize="37sp"
-        android:textStyle="bold" />
+        android:background="@drawable/widget_chip_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="11dp"
+        android:paddingTop="5dp"
+        android:paddingRight="13dp"
+        android:paddingBottom="5dp">
+
+        <ImageView
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginEnd="7dp"
+            android:background="@drawable/widget_live_dot"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/textCurrentPrayer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-medium"
+            android:singleLine="true"
+            android:text="--"
+            android:textColor="#2E5C49"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/textNextPrayer"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:gravity="center"
-        android:text="Next, -- in"
-        android:textColor="#555B6A"
-        android:textSize="20sp" />
-
-    <TextView
-        android:id="@+id/textEndedStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:gravity="center"
-        android:text="-- time just ended"
-        android:textColor="#555B6A"
-        android:textSize="18sp"
-        android:textStyle="italic"
-        android:visibility="gone" />
+        android:layout_marginTop="14dp"
+        android:fontFamily="sans-serif-medium"
+        android:letterSpacing="0.12"
+        android:singleLine="true"
+        android:text="Next · -- in"
+        android:textAllCaps="true"
+        android:textColor="#8C8FAE"
+        android:textSize="11sp"
+        android:textStyle="bold" />
 
     <Chronometer
         android:id="@+id/textCountdown"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:gravity="center"
-        android:textColor="#0D6E4C"
-        android:textSize="33sp"
+        android:layout_marginTop="2dp"
+        android:fontFamily="sans-serif"
+        android:includeFontPadding="false"
+        android:textColor="#0B6B49"
+        android:textSize="46sp"
         android:textStyle="bold" />
 
     <TextView
-        android:id="@+id/textDate"
-        android:layout_width="match_parent"
+        android:id="@+id/textEndedStatus"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:gravity="center"
-        android:text="--, --"
-        android:textColor="#555B6A"
-        android:textSize="12sp" />
+        android:layout_marginTop="6dp"
+        android:singleLine="true"
+        android:text="-- time just ended"
+        android:textColor="#8C90A8"
+        android:textSize="12.5sp"
+        android:textStyle="italic"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="13dp"
+        android:background="@drawable/widget_date_pill_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="11dp"
+        android:paddingTop="5dp"
+        android:paddingRight="13dp"
+        android:paddingBottom="5dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:text="🌙"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/textDate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-medium"
+            android:singleLine="true"
+            android:text="--"
+            android:textColor="#5A5675"
+            android:textSize="11.5sp" />
+    </LinearLayout>
 </LinearLayout>

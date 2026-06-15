@@ -49,6 +49,18 @@ object PrayerWidgetUpdater {
   private const val BOUNDARY_GRACE_SECONDS = 1L
   private const val BOUNDARY_GRACE_MILLIS = BOUNDARY_GRACE_SECONDS * 1000L
 
+  // The zero-clamp fires a short burst of exact alarms spanning the boundary instead of
+  // a single one. The widget's countdown is a self-ticking Chronometer drawn by the
+  // launcher, so we can't rewrite its text per second — we can only push a "freeze at
+  // 00:00:00" update, and that push rides on an alarm the OS may delay by a few seconds.
+  // By spreading targets from 5s before to ~1s after the boundary, at least one lands in
+  // the [boundary, boundary+1s) window (where the chronometer still reads 00:00) even
+  // when the phone delays every alarm by up to ~6s — letting us clamp it to a static
+  // 00:00:00 before it can ever show a negative value.
+  private const val FREEZE_REQUEST_CODE_BASE = 3005
+  private val FREEZE_OFFSETS_MILLIS =
+    longArrayOf(-5000L, -4000L, -3000L, -2000L, -1000L, 0L, 1100L)
+
   private val backgroundExecutor = Executors.newSingleThreadExecutor()
 
   fun startRefresh(context: Context) {
@@ -61,7 +73,7 @@ object PrayerWidgetUpdater {
     scheduleMidnightRefresh(context)
     val settings = WidgetSettings.load(context)
     if (!hasLocationOrManualCity(settings)) {
-      renderAll(context, "location required", "Next, -- in", null, "--")
+      renderAll(context, "location required", "Next · -- in", null, "--")
       scheduleRetry(context, minutes = 5)
       return
     }
@@ -75,7 +87,7 @@ object PrayerWidgetUpdater {
         // to the ended state at/after it, so it can never tick into the negatives here.
         renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
       } else {
-        renderAll(context, "unable to load", "Next, -- in", null, "--")
+        renderAll(context, "unable to load", "Next · -- in", null, "--")
       }
       scheduleRetry(context, minutes = 5)
       return
@@ -83,11 +95,11 @@ object PrayerWidgetUpdater {
 
     val state = buildWidgetState(prayerTimes)
     val dateText = buildDateText(context, prayerTimes)
-    val nextLabel = "Next, ${state.nextPrayer} in"
+    val nextLabel = "Next · ${state.nextPrayer} in"
     saveLastState(context, state.currentPrayer, nextLabel, state.nextPrayerAtMillis)
     renderAll(
       context = context,
-      current = state.currentPrayer,
+      current = "${state.currentPrayer} now",
       next = nextLabel,
       nextPrayerAtMillis = state.nextPrayerAtMillis,
       dateText = dateText
@@ -100,20 +112,27 @@ object PrayerWidgetUpdater {
   }
 
   fun freezeAtZero(context: Context) {
-    val fallback = loadLastState(context)
-    if (fallback != null) {
-      val (lastCurrent, lastNext, lastNextAt) = fallback
-      val deltaToSavedNext = lastNextAt - System.currentTimeMillis()
-      // Once we are at (or within ~1s of) the saved boundary, hard-clamp the
-      // chronometer to 00:00:00. No upper bound on lateness: however delayed this
-      // fires, the widget shows a frozen zero instead of ticking into the negatives.
-      if (deltaToSavedNext <= 1_000L) {
-        renderAll(context, lastCurrent, lastNext, null, "--", "00:00:00")
-      }
+    val fallback = loadLastState(context) ?: run {
+      startRefresh(context)
+      return
     }
-    // Recompute from the local cache. The countdown holds at 00:00:00 through the
-    // grace second and only advances to the next prayer once it has fully elapsed.
-    startRefresh(context)
+    val (lastCurrent, lastNext, lastNextAt) = fallback
+    val now = System.currentTimeMillis()
+
+    // Before the boundary the live countdown is still correct — never clamp early.
+    if (now < lastNextAt) {
+      return
+    }
+
+    // At or past the boundary: hard-clamp to a STATIC "00:00:00". Because this is a
+    // fixed string and not the self-ticking chronometer, the launcher cannot push it
+    // into the negatives no matter how late this alarm actually landed.
+    renderAll(context, "$lastCurrent now", lastNext, null, "--", "00:00:00")
+
+    // Hold at zero through the grace second, then advance to the next prayer.
+    if (now >= lastNextAt + BOUNDARY_GRACE_MILLIS) {
+      startRefresh(context)
+    }
   }
 
   private fun hasLocationOrManualCity(settings: UserSettings): Boolean {
@@ -248,7 +267,7 @@ object PrayerWidgetUpdater {
   }
 
   private fun extractNextPrayerName(nextLabel: String): String? {
-    val regex = Regex("^Next,\\s*(.+?)\\s+in$")
+    val regex = Regex("^Next\\s*[·,]\\s*(.+?)\\s+in$")
     return regex.find(nextLabel)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
   }
 
@@ -350,23 +369,28 @@ object PrayerWidgetUpdater {
   }
 
   private fun scheduleZeroFreeze(context: Context, nextPrayerAtMillis: Long) {
-    val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
-      action = ACTION_WIDGET_FREEZE_ZERO
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val now = System.currentTimeMillis()
+
+    FREEZE_OFFSETS_MILLIS.forEachIndexed { index, offset ->
+      val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
+        action = ACTION_WIDGET_FREEZE_ZERO
+      }
+      val pendingIntent = PendingIntent.getBroadcast(
+        context,
+        FREEZE_REQUEST_CODE_BASE + index,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+
+      val triggerMillis = nextPrayerAtMillis + offset
+      if (triggerMillis <= now + 100L) {
+        // Target already in the past (we re-scheduled close to the boundary): drop it.
+        alarmManager.cancel(pendingIntent)
+      } else {
+        scheduleExact(context, AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
+      }
     }
-    val pendingIntent = PendingIntent.getBroadcast(
-      context,
-      3005,
-      intent,
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    val remainingMillis = (nextPrayerAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
-    // Elapsed-realtime clock matches the Chronometer's base, so this lands right on
-    // the boundary regardless of any wall-clock drift.
-    val triggerElapsed = (SystemClock.elapsedRealtime() + remainingMillis + 20L)
-      .coerceAtLeast(SystemClock.elapsedRealtime() + 1000L)
-
-    scheduleExact(context, AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerElapsed, pendingIntent)
   }
 
   private fun scheduleSafetyRefresh(context: Context, nextPrayerAtMillis: Long) {
@@ -486,16 +510,18 @@ object PrayerWidgetUpdater {
     )
     alarmManager.cancel(safetyPendingIntent)
 
-    val freezeIntent = Intent(context, PrayerUpdateReceiver::class.java).apply {
-      action = ACTION_WIDGET_FREEZE_ZERO
+    FREEZE_OFFSETS_MILLIS.indices.forEach { index ->
+      val freezeIntent = Intent(context, PrayerUpdateReceiver::class.java).apply {
+        action = ACTION_WIDGET_FREEZE_ZERO
+      }
+      val freezePendingIntent = PendingIntent.getBroadcast(
+        context,
+        FREEZE_REQUEST_CODE_BASE + index,
+        freezeIntent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+      alarmManager.cancel(freezePendingIntent)
     }
-    val freezePendingIntent = PendingIntent.getBroadcast(
-      context,
-      3005,
-      freezeIntent,
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-    alarmManager.cancel(freezePendingIntent)
   }
 
   private fun saveLastState(context: Context, current: String, next: String, nextAtMillis: Long) {
