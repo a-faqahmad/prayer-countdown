@@ -62,6 +62,7 @@ class PrayerWidgetModule(private val reactContext: ReactApplicationContext) :
         putString("hijriCalendarMethod", settings.hijriCalendarMethod)
         putBoolean("hijriMethodAuto", settings.hijriMethodAuto)
         putInt("hijriAdjustment", settings.hijriAdjustment)
+        putString("widgetDisplayMode", settings.widgetDisplayMode)
       }
       promise.resolve(data)
     } catch (error: Exception) {
@@ -83,6 +84,7 @@ class PrayerWidgetModule(private val reactContext: ReactApplicationContext) :
       val hijriCalendarMethod = if (input.hasKey("hijriCalendarMethod")) input.getString("hijriCalendarMethod") ?: "HJCoSA" else "HJCoSA"
       val hijriMethodAuto = if (input.hasKey("hijriMethodAuto")) input.getBoolean("hijriMethodAuto") else true
       val hijriAdjustment = if (input.hasKey("hijriAdjustment")) input.getInt("hijriAdjustment") else 0
+      val widgetDisplayMode = if (input.hasKey("widgetDisplayMode")) input.getString("widgetDisplayMode") ?: "time" else "time"
 
       WidgetSettings.save(
         context = reactContext,
@@ -96,7 +98,8 @@ class PrayerWidgetModule(private val reactContext: ReactApplicationContext) :
         widgetEnabled = widgetEnabled,
         hijriCalendarMethod = hijriCalendarMethod,
         hijriMethodAuto = hijriMethodAuto,
-        hijriAdjustment = hijriAdjustment
+        hijriAdjustment = hijriAdjustment,
+        widgetDisplayMode = widgetDisplayMode
       )
 
       PrayerTimesCache.syncNow(reactContext)

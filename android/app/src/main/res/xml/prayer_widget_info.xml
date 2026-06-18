@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- updatePeriodMillis is 30 min (the system-clamped minimum): a free,
+     permission-less, non-Doze-waking backstop that bounds staleness in static
+     time mode on heavily-throttled phones. Irrelevant to countdown precision
+     (boundary/freeze alarms own that) but harmless there. Do not set back to 0. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:label="@string/widget_name"
     android:minWidth="220dp"
@@ -8,7 +12,7 @@
     android:targetCellHeight="2"
     android:icon="@mipmap/ic_launcher"
     android:previewImage="@drawable/prayer_countdown_widget_logo"
-    android:updatePeriodMillis="0"
+    android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/prayer_widget"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen" />

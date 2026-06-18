@@ -16,6 +16,7 @@ data class UserSettings(
   val hijriCalendarMethod: String,
   val hijriMethodAuto: Boolean,
   val hijriAdjustment: Int,
+  val widgetDisplayMode: String,
   val lastNotificationKey: String
 )
 
@@ -32,9 +33,11 @@ object WidgetSettings {
   private const val KEY_HIJRI_METHOD = "hijri_calendar_method"
   private const val KEY_HIJRI_METHOD_AUTO = "hijri_method_auto"
   private const val KEY_HIJRI_ADJUSTMENT = "hijri_adjustment"
+  private const val KEY_WIDGET_DISPLAY_MODE = "widget_display_mode"
   private const val KEY_LAST_NOTIFICATION = "last_notification"
 
   const val DEFAULT_HIJRI_METHOD = "HJCoSA"
+  const val DEFAULT_WIDGET_DISPLAY_MODE = "time"
 
   private fun prefs(context: Context): SharedPreferences {
     return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -57,6 +60,7 @@ object WidgetSettings {
       hijriCalendarMethod = sharedPrefs.getString(KEY_HIJRI_METHOD, DEFAULT_HIJRI_METHOD) ?: DEFAULT_HIJRI_METHOD,
       hijriMethodAuto = sharedPrefs.getBoolean(KEY_HIJRI_METHOD_AUTO, true),
       hijriAdjustment = sharedPrefs.getInt(KEY_HIJRI_ADJUSTMENT, 0),
+      widgetDisplayMode = sharedPrefs.getString(KEY_WIDGET_DISPLAY_MODE, DEFAULT_WIDGET_DISPLAY_MODE) ?: DEFAULT_WIDGET_DISPLAY_MODE,
       lastNotificationKey = sharedPrefs.getString(KEY_LAST_NOTIFICATION, "") ?: ""
     )
   }
@@ -73,7 +77,8 @@ object WidgetSettings {
     widgetEnabled: Boolean,
     hijriCalendarMethod: String,
     hijriMethodAuto: Boolean,
-    hijriAdjustment: Int
+    hijriAdjustment: Int,
+    widgetDisplayMode: String
   ) {
     prefs(context).edit {
       putString(KEY_CITY, city.trim())
@@ -92,6 +97,7 @@ object WidgetSettings {
       putString(KEY_HIJRI_METHOD, hijriCalendarMethod)
       putBoolean(KEY_HIJRI_METHOD_AUTO, hijriMethodAuto)
       putInt(KEY_HIJRI_ADJUSTMENT, hijriAdjustment)
+      putString(KEY_WIDGET_DISPLAY_MODE, widgetDisplayMode)
     }
   }
 

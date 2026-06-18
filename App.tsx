@@ -774,8 +774,12 @@ function App(): React.JSX.Element {
             onPress={() => setWidgetHelpVisible(true)}>
             <IconBadge glyph="🏠" tint={C.amberTint} />
             <View style={styles.rowBody}>
-              <Text style={styles.rowTitle}>Add widget</Text>
-              <Text style={styles.rowValue}>Home-screen setup</Text>
+              <Text style={styles.rowTitle}>Widget</Text>
+              <Text style={styles.rowValue} numberOfLines={1}>
+                {settings.widgetDisplayMode === 'countdown'
+                  ? 'Showing countdown'
+                  : 'Showing next prayer time'}
+              </Text>
             </View>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
@@ -1019,12 +1023,11 @@ function App(): React.JSX.Element {
         onRequestClose={() => setWidgetHelpVisible(false)}>
         <View style={styles.centerOverlay}>
           <View style={styles.dialog}>
-            <Text style={styles.dialogTitle}>Add the widget</Text>
+            <Text style={styles.groupLabel}>HOW TO ADD</Text>
             {[
               'Touch and hold an empty spot on your home screen.',
               'Tap “Widgets”.',
-              'Find “Prayer Countdown”.',
-              'Drag it onto your home screen.',
+              'Find “Prayer Countdown” and drag it on.',
             ].map((step, index) => (
               <View key={step} style={styles.stepRow}>
                 <View style={styles.stepNum}>
@@ -1033,10 +1036,70 @@ function App(): React.JSX.Element {
                 <Text style={styles.stepText}>{step}</Text>
               </View>
             ))}
+
+            <View style={styles.modalDivider} />
+
+            <Text style={styles.groupLabel}>WHAT TO SHOW</Text>
+
+            <TouchableOpacity
+              style={[
+                styles.choiceRow,
+                settings.widgetDisplayMode === 'time' && styles.choiceRowActive,
+              ]}
+              activeOpacity={0.7}
+              onPress={() => updateField('widgetDisplayMode', 'time')}>
+              <View style={styles.choiceBody}>
+                <Text
+                  style={[
+                    styles.choiceTitle,
+                    settings.widgetDisplayMode === 'time' &&
+                      styles.choiceTitleActive,
+                  ]}>
+                  Next prayer time
+                </Text>
+                <Text style={styles.choiceSub}>
+                  The exact start time, e.g. “Maghrib at 6:42 pm”.
+                </Text>
+              </View>
+              {settings.widgetDisplayMode === 'time' && (
+                <Text style={styles.choiceCheck}>✓</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.choiceRow,
+                settings.widgetDisplayMode === 'countdown' && styles.choiceRowActive,
+              ]}
+              activeOpacity={0.7}
+              onPress={() => updateField('widgetDisplayMode', 'countdown')}>
+              <View style={styles.choiceBody}>
+                <Text
+                  style={[
+                    styles.choiceTitle,
+                    settings.widgetDisplayMode === 'countdown' &&
+                      styles.choiceTitleActive,
+                  ]}>
+                  Countdown
+                </Text>
+                <Text style={styles.choiceSub}>
+                  Live ticking time until the next prayer.
+                </Text>
+                <View style={styles.warnBox}>
+                  <Text style={styles.warnText}>
+                    ⚠️ Not recommended for older devices
+                  </Text>
+                </View>
+              </View>
+              {settings.widgetDisplayMode === 'countdown' && (
+                <Text style={styles.choiceCheck}>✓</Text>
+              )}
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.ghostButton}
               onPress={() => setWidgetHelpVisible(false)}>
-              <Text style={styles.ghostButtonText}>Got it</Text>
+              <Text style={styles.ghostButtonText}>Done</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1279,6 +1342,21 @@ function isValidHhmm(value?: string): value is string {
   return typeof value === 'string' && value.includes(':');
 }
 
+function to12h(hhmm: string): string {
+  if (!isValidHhmm(hhmm)) {
+    return hhmm;
+  }
+  const [rawH, rawM] = hhmm.split(':');
+  const h = parseInt(rawH, 10);
+  const m = parseInt(rawM, 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) {
+    return hhmm;
+  }
+  const period = h < 12 ? 'am' : 'pm';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 type PrayerRow = {
   name: string;
   time: string;
@@ -1338,7 +1416,7 @@ function getAllPrayerRows(times: PrayerTimes | null, now: Date): PrayerRow[] {
 
   return entries.map((entry, index) => {
     const rawTime = times[entry.key];
-    const time = isValidHhmm(rawTime) ? rawTime : '--:--';
+    const time = isValidHhmm(rawTime) ? to12h(rawTime) : '--:--';
     const isCurrent = index === currentIndex;
     const isPassed = currentIndex >= 0 ? index < currentIndex : false;
     return {
@@ -1398,6 +1476,7 @@ function serializeSettings(value: AppSettings): string {
     hijriCalendarMethod: value.hijriCalendarMethod,
     hijriMethodAuto: value.hijriMethodAuto,
     hijriAdjustment: value.hijriAdjustment,
+    widgetDisplayMode: value.widgetDisplayMode,
   });
 }
 
@@ -1715,7 +1794,7 @@ const styles = StyleSheet.create({
   ghostButtonText: {color: C.ink, fontWeight: '700', fontSize: 14.5},
   choiceRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 14,
@@ -1728,26 +1807,51 @@ const styles = StyleSheet.create({
   choiceBody: {flex: 1},
   choiceTitle: {fontSize: 15, fontWeight: '700', color: C.ink},
   choiceTitleActive: {color: C.primary},
-  choiceSub: {fontSize: 12, color: C.inkFaint, marginTop: 2},
-  choiceCheck: {fontSize: 17, fontWeight: '800', color: C.primary, marginLeft: 10},
+  choiceSub: {fontSize: 12, color: C.inkFaint, marginTop: 2, lineHeight: 17},
+  choiceCheck: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: C.primary,
+    marginLeft: 10,
+    marginTop: 1,
+  },
+  groupLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.inkFaint,
+    letterSpacing: 0.8,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  warnBox: {
+    marginTop: 9,
+    backgroundColor: '#FBF0E1',
+    borderRadius: 9,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  warnText: {fontSize: 11.5, color: '#8A5A12', lineHeight: 16},
+  modalDivider: {height: 1, backgroundColor: C.line, marginVertical: 16},
   advanced: {
     marginTop: 6,
     marginBottom: 2,
     paddingTop: 14,
     borderTopWidth: 1,
     borderTopColor: C.line,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
   },
   advancedLabel: {
     fontSize: 11,
     fontWeight: '700',
     color: C.inkFaint,
     letterSpacing: 0.6,
-    flex: 1,
+    marginBottom: 12,
   },
-  stepper: {flexDirection: 'row', alignItems: 'center', gap: 14},
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 18,
+  },
   stepBtn: {
     width: 34,
     height: 34,

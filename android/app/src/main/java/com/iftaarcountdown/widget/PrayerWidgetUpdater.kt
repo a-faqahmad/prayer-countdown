@@ -15,10 +15,12 @@ import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import com.iftaarcountdown.R
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.Executors
 
 data class WidgetState(
@@ -62,6 +64,7 @@ object PrayerWidgetUpdater {
     longArrayOf(-5000L, -4000L, -3000L, -2000L, -1000L, 0L, 1100L)
 
   private val backgroundExecutor = Executors.newSingleThreadExecutor()
+  private val clockFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 
   fun startRefresh(context: Context) {
     backgroundExecutor.execute {
@@ -72,8 +75,10 @@ object PrayerWidgetUpdater {
   fun refreshInternal(context: Context) {
     scheduleMidnightRefresh(context)
     val settings = WidgetSettings.load(context)
+    val timeMode = settings.widgetDisplayMode != "countdown"
+
     if (!hasLocationOrManualCity(settings)) {
-      renderAll(context, "location required", "Next · -- in", null, "--")
+      renderPlaceholder(context, "location required", timeMode)
       scheduleRetry(context, minutes = 5)
       return
     }
@@ -83,11 +88,16 @@ object PrayerWidgetUpdater {
       val fallback = loadLastState(context)
       if (fallback != null) {
         val (lastCurrent, lastNext, lastNextAt) = fallback
-        // renderAll keeps the prior countdown running before the boundary and clamps
-        // to the ended state at/after it, so it can never tick into the negatives here.
-        renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
+        if (timeMode) {
+          // Static last-known start time — nothing to tick, nothing to clamp.
+          renderAll(context, lastCurrent, lastNext, null, "--", nextTimeText = formatClock(lastNextAt))
+        } else {
+          // renderAll keeps the prior countdown running before the boundary and clamps
+          // to the ended state at/after it, so it can never tick into the negatives here.
+          renderAll(context, lastCurrent, lastNext, lastNextAt, "--")
+        }
       } else {
-        renderAll(context, "unable to load", "Next · -- in", null, "--")
+        renderPlaceholder(context, "unable to load", timeMode)
       }
       scheduleRetry(context, minutes = 5)
       return
@@ -95,23 +105,47 @@ object PrayerWidgetUpdater {
 
     val state = buildWidgetState(prayerTimes)
     val dateText = buildDateText(context, prayerTimes)
-    val nextLabel = "Next · ${state.nextPrayer} in"
-    saveLastState(context, state.currentPrayer, nextLabel, state.nextPrayerAtMillis)
-    renderAll(
-      context = context,
-      current = "${state.currentPrayer} now",
-      next = nextLabel,
-      nextPrayerAtMillis = state.nextPrayerAtMillis,
-      dateText = dateText
-    )
-
     maybeShowPrayerNotification(context, settings, state)
-    scheduleNextPrayerUpdate(context, state.nextPrayerAtMillis)
-    scheduleZeroFreeze(context, state.nextPrayerAtMillis)
-    scheduleSafetyRefresh(context, state.nextPrayerAtMillis)
+
+    if (timeMode) {
+      // TIME MODE (default): show the next prayer's exact start time. A static string
+      // can never tick into the negatives, so the boundary-clamp machinery is unneeded.
+      val nextLabel = "Next · ${state.nextPrayer} at"
+      saveLastState(context, state.currentPrayer, nextLabel, state.nextPrayerAtMillis)
+      renderAll(
+        context = context,
+        current = "${state.currentPrayer} now",
+        next = nextLabel,
+        nextPrayerAtMillis = null,
+        dateText = dateText,
+        nextTimeText = formatClock(state.nextPrayerAtMillis)
+      )
+      cancelZeroFreeze(context)
+      scheduleNextPrayerUpdate(context, state.nextPrayerAtMillis)
+      scheduleSafetyRefresh(context, state.nextPrayerAtMillis)
+    } else {
+      // COUNTDOWN MODE: live ticking chronometer plus the burst-freeze clamp at zero.
+      val nextLabel = "Next · ${state.nextPrayer} in"
+      saveLastState(context, state.currentPrayer, nextLabel, state.nextPrayerAtMillis)
+      renderAll(
+        context = context,
+        current = "${state.currentPrayer} now",
+        next = nextLabel,
+        nextPrayerAtMillis = state.nextPrayerAtMillis,
+        dateText = dateText
+      )
+      scheduleNextPrayerUpdate(context, state.nextPrayerAtMillis)
+      scheduleZeroFreeze(context, state.nextPrayerAtMillis)
+      scheduleSafetyRefresh(context, state.nextPrayerAtMillis)
+    }
   }
 
   fun freezeAtZero(context: Context) {
+    // In time mode there is no live countdown to clamp; just keep the widget current.
+    if (WidgetSettings.load(context).widgetDisplayMode != "countdown") {
+      startRefresh(context)
+      return
+    }
     val fallback = loadLastState(context) ?: run {
       startRefresh(context)
       return
@@ -199,13 +233,29 @@ object PrayerWidgetUpdater {
     return String.format("%02d:%02d:%02d", hours, minutes, seconds)
   }
 
+  private fun formatClock(epochMillis: Long): String {
+    val time = Instant.ofEpochMilli(epochMillis)
+      .atZone(ZoneId.systemDefault())
+      .toLocalTime()
+    return time.format(clockFormatter).lowercase(Locale.US)
+  }
+
+  private fun renderPlaceholder(context: Context, current: String, timeMode: Boolean) {
+    if (timeMode) {
+      renderAll(context, current, "Next · -- at", null, "--", nextTimeText = "--")
+    } else {
+      renderAll(context, current, "Next · -- in", null, "--")
+    }
+  }
+
   private fun renderAll(
     context: Context,
     current: String,
     next: String,
     nextPrayerAtMillis: Long?,
     dateText: String,
-    fixedCountdown: String? = null
+    fixedCountdown: String? = null,
+    nextTimeText: String? = null
   ) {
     val appWidgetManager = AppWidgetManager.getInstance(context)
     val component = ComponentName(context, PrayerWidgetProvider::class.java)
@@ -218,43 +268,50 @@ object PrayerWidgetUpdater {
     ids.forEach { id ->
       val views = RemoteViews(context.packageName, R.layout.prayer_widget)
       val nowMillis = System.currentTimeMillis()
-      // Only flip to the "just ended" / next-prayer state once we are a full grace
-      // period past the boundary. During the grace second the countdown holds at
-      // 00:00:00 on the current prayer (handled by the remaining<=0 branch below),
-      // so the next prayer is never surfaced early.
-      val shouldShowEndedState =
-        nextPrayerAtMillis != null && (nextPrayerAtMillis - nowMillis) <= -BOUNDARY_GRACE_MILLIS
 
-      if (shouldShowEndedState) {
-        val currentAsNext = extractNextPrayerName(next) ?: current
-        views.setTextViewText(R.id.textCurrentPrayer, currentAsNext)
-        views.setTextViewText(R.id.textEndedStatus, "$current time just ended")
-        views.setViewVisibility(R.id.textNextPrayer, View.GONE)
-        views.setViewVisibility(R.id.textCountdown, View.GONE)
-        views.setViewVisibility(R.id.textEndedStatus, View.VISIBLE)
-        views.setChronometerCountDown(R.id.textCountdown, false)
-        views.setChronometer(R.id.textCountdown, SystemClock.elapsedRealtime(), null, false)
-      } else {
+      // The hero is EITHER the live ticking chronometer (textCountdown) OR a static
+      // string (textNextTime). A Chronometer recomputes its own text from its base, so
+      // any static value — the next-prayer time, a frozen 00:00:00, a placeholder — must
+      // live in a plain TextView, otherwise the chronometer overwrites it.
+
+      if (nextTimeText != null) {
+        // TIME MODE: the next prayer's exact start time (static, never ticks).
         views.setTextViewText(R.id.textCurrentPrayer, current)
         views.setTextViewText(R.id.textNextPrayer, next)
         views.setViewVisibility(R.id.textNextPrayer, View.VISIBLE)
-        views.setViewVisibility(R.id.textCountdown, View.VISIBLE)
         views.setViewVisibility(R.id.textEndedStatus, View.GONE)
+        showStaticHero(views, nextTimeText)
+      } else {
+        // Only flip to the "just ended" state once a full grace period past the boundary.
+        val shouldShowEndedState =
+          nextPrayerAtMillis != null && (nextPrayerAtMillis - nowMillis) <= -BOUNDARY_GRACE_MILLIS
 
-        if (nextPrayerAtMillis == null) {
-          views.setTextViewText(R.id.textCountdown, fixedCountdown ?: "--:--:--")
-          views.setChronometerCountDown(R.id.textCountdown, false)
-          views.setChronometer(R.id.textCountdown, SystemClock.elapsedRealtime(), null, false)
+        if (shouldShowEndedState) {
+          val currentAsNext = extractNextPrayerName(next) ?: current
+          views.setTextViewText(R.id.textCurrentPrayer, currentAsNext)
+          views.setTextViewText(R.id.textEndedStatus, "$current time just ended")
+          views.setViewVisibility(R.id.textNextPrayer, View.GONE)
+          views.setViewVisibility(R.id.textCountdown, View.GONE)
+          views.setViewVisibility(R.id.textNextTime, View.GONE)
+          views.setViewVisibility(R.id.textEndedStatus, View.VISIBLE)
         } else {
-          val remainingMillis = (nextPrayerAtMillis - nowMillis).coerceAtLeast(0L)
-          if (remainingMillis <= 0L) {
-            views.setTextViewText(R.id.textCountdown, "00:00:00")
-            views.setChronometerCountDown(R.id.textCountdown, false)
-            views.setChronometer(R.id.textCountdown, SystemClock.elapsedRealtime(), null, false)
-          } else {
-            val base = SystemClock.elapsedRealtime() + remainingMillis
-            views.setChronometerCountDown(R.id.textCountdown, true)
-            views.setChronometer(R.id.textCountdown, base, null, true)
+          views.setTextViewText(R.id.textCurrentPrayer, current)
+          views.setTextViewText(R.id.textNextPrayer, next)
+          views.setViewVisibility(R.id.textNextPrayer, View.VISIBLE)
+          views.setViewVisibility(R.id.textEndedStatus, View.GONE)
+
+          val remainingMillis = nextPrayerAtMillis?.minus(nowMillis)
+          when {
+            remainingMillis == null -> showStaticHero(views, fixedCountdown ?: "--:--:--")
+            remainingMillis <= 0L -> showStaticHero(views, "00:00:00")
+            else -> {
+              // Live countdown: the chronometer ticks itself, no static text.
+              views.setViewVisibility(R.id.textNextTime, View.GONE)
+              views.setViewVisibility(R.id.textCountdown, View.VISIBLE)
+              val base = SystemClock.elapsedRealtime() + remainingMillis
+              views.setChronometerCountDown(R.id.textCountdown, true)
+              views.setChronometer(R.id.textCountdown, base, null, true)
+            }
           }
         }
       }
@@ -266,8 +323,17 @@ object PrayerWidgetUpdater {
     }
   }
 
+  private fun showStaticHero(views: RemoteViews, text: String) {
+    // Stop and hide the chronometer so it can't overwrite the static text, then show the
+    // value in the plain TextView hero.
+    views.setChronometer(R.id.textCountdown, SystemClock.elapsedRealtime(), null, false)
+    views.setViewVisibility(R.id.textCountdown, View.GONE)
+    views.setTextViewText(R.id.textNextTime, text)
+    views.setViewVisibility(R.id.textNextTime, View.VISIBLE)
+  }
+
   private fun extractNextPrayerName(nextLabel: String): String? {
-    val regex = Regex("^Next\\s*[·,]\\s*(.+?)\\s+in$")
+    val regex = Regex("^Next\\s*[·,]\\s*(.+?)\\s+(?:in|at)$")
     return regex.find(nextLabel)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
   }
 
@@ -390,6 +456,22 @@ object PrayerWidgetUpdater {
       } else {
         scheduleExact(context, AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
       }
+    }
+  }
+
+  private fun cancelZeroFreeze(context: Context) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    FREEZE_OFFSETS_MILLIS.indices.forEach { index ->
+      val intent = Intent(context, PrayerUpdateReceiver::class.java).apply {
+        action = ACTION_WIDGET_FREEZE_ZERO
+      }
+      val pendingIntent = PendingIntent.getBroadcast(
+        context,
+        FREEZE_REQUEST_CODE_BASE + index,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+      alarmManager.cancel(pendingIntent)
     }
   }
 

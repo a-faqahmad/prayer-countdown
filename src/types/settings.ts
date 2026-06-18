@@ -1,5 +1,7 @@
 export type HijriMethod = 'HJCoSA' | 'UAQ' | 'MATHEMATICAL';
 
+export type WidgetDisplayMode = 'time' | 'countdown';
+
 export type AppSettings = {
   city: string;
   country: string;
@@ -12,6 +14,7 @@ export type AppSettings = {
   hijriCalendarMethod: HijriMethod;
   hijriMethodAuto: boolean;
   hijriAdjustment: number;
+  widgetDisplayMode: WidgetDisplayMode;
 };
 
 export type DetectedLocation = {
@@ -33,4 +36,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hijriCalendarMethod: 'HJCoSA',
   hijriMethodAuto: true,
   hijriAdjustment: 0,
+  widgetDisplayMode: 'time',
 };
