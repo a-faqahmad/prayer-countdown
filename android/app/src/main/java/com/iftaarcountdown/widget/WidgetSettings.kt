@@ -13,6 +13,9 @@ data class UserSettings(
   val school: Int,
   val notificationsEnabled: Boolean,
   val widgetEnabled: Boolean,
+  val hijriCalendarMethod: String,
+  val hijriMethodAuto: Boolean,
+  val hijriAdjustment: Int,
   val lastNotificationKey: String
 )
 
@@ -26,7 +29,12 @@ object WidgetSettings {
   private const val KEY_SCHOOL = "school"
   private const val KEY_NOTIFICATIONS_ENABLED = "notifications_enabled"
   private const val KEY_WIDGET_ENABLED = "widget_enabled"
+  private const val KEY_HIJRI_METHOD = "hijri_calendar_method"
+  private const val KEY_HIJRI_METHOD_AUTO = "hijri_method_auto"
+  private const val KEY_HIJRI_ADJUSTMENT = "hijri_adjustment"
   private const val KEY_LAST_NOTIFICATION = "last_notification"
+
+  const val DEFAULT_HIJRI_METHOD = "HJCoSA"
 
   private fun prefs(context: Context): SharedPreferences {
     return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -46,6 +54,9 @@ object WidgetSettings {
       school = sharedPrefs.getInt(KEY_SCHOOL, 1),
       notificationsEnabled = sharedPrefs.getBoolean(KEY_NOTIFICATIONS_ENABLED, false),
       widgetEnabled = sharedPrefs.getBoolean(KEY_WIDGET_ENABLED, true),
+      hijriCalendarMethod = sharedPrefs.getString(KEY_HIJRI_METHOD, DEFAULT_HIJRI_METHOD) ?: DEFAULT_HIJRI_METHOD,
+      hijriMethodAuto = sharedPrefs.getBoolean(KEY_HIJRI_METHOD_AUTO, true),
+      hijriAdjustment = sharedPrefs.getInt(KEY_HIJRI_ADJUSTMENT, 0),
       lastNotificationKey = sharedPrefs.getString(KEY_LAST_NOTIFICATION, "") ?: ""
     )
   }
@@ -59,7 +70,10 @@ object WidgetSettings {
     useDeviceLocation: Boolean,
     school: Int,
     notificationsEnabled: Boolean,
-    widgetEnabled: Boolean
+    widgetEnabled: Boolean,
+    hijriCalendarMethod: String,
+    hijriMethodAuto: Boolean,
+    hijriAdjustment: Int
   ) {
     prefs(context).edit {
       putString(KEY_CITY, city.trim())
@@ -75,6 +89,9 @@ object WidgetSettings {
       putInt(KEY_SCHOOL, school)
       putBoolean(KEY_NOTIFICATIONS_ENABLED, notificationsEnabled)
       putBoolean(KEY_WIDGET_ENABLED, widgetEnabled)
+      putString(KEY_HIJRI_METHOD, hijriCalendarMethod)
+      putBoolean(KEY_HIJRI_METHOD_AUTO, hijriMethodAuto)
+      putInt(KEY_HIJRI_ADJUSTMENT, hijriAdjustment)
     }
   }
 

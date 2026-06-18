@@ -52,13 +52,23 @@ object PrayerApiClient {
   private fun buildUrl(settings: UserSettings, date: LocalDate): String {
     val method = 1
     val dateString = date.format(dateParser)
+    // Hijri calendar controls: calendarMethod selects how the Islamic date is derived
+    // (HJCoSA / UAQ / MATHEMATICAL). Aladhan only honours `adjustment` for the
+    // MATHEMATICAL method, so we only append it there.
+    val calendarMethod = settings.hijriCalendarMethod.ifBlank { "HJCoSA" }
+    val hijriParams = buildString {
+      append("&calendarMethod=").append(calendarMethod)
+      if (calendarMethod == "MATHEMATICAL" && settings.hijriAdjustment != 0) {
+        append("&adjustment=").append(settings.hijriAdjustment)
+      }
+    }
 
     return if (settings.useDeviceLocation && settings.latitude != null && settings.longitude != null) {
-      "https://api.aladhan.com/v1/timings/$dateString?latitude=${settings.latitude}&longitude=${settings.longitude}&method=$method&school=${settings.school}"
+      "https://api.aladhan.com/v1/timings/$dateString?latitude=${settings.latitude}&longitude=${settings.longitude}&method=$method&school=${settings.school}$hijriParams"
     } else {
       val city = URLEncoder.encode(settings.city, StandardCharsets.UTF_8.toString())
       val country = URLEncoder.encode(settings.country, StandardCharsets.UTF_8.toString())
-      "https://api.aladhan.com/v1/timingsByCity/$dateString?city=$city&country=$country&method=$method&school=${settings.school}"
+      "https://api.aladhan.com/v1/timingsByCity/$dateString?city=$city&country=$country&method=$method&school=${settings.school}$hijriParams"
     }
   }
 

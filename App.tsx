@@ -30,7 +30,7 @@ import {
   startCompass,
   stopCompass,
 } from './src/native/prayerWidget';
-import {AppSettings, DEFAULT_SETTINGS} from './src/types/settings';
+import {AppSettings, DEFAULT_SETTINGS, HijriMethod} from './src/types/settings';
 
 type PrayerPanelState = 'loading' | 'ready' | 'location_required' | 'error';
 
@@ -47,8 +47,41 @@ const C = {
   mintInk: '#0B6B49',
   blueTint: '#E8F0FE',
   amberTint: '#FBF0E1',
+  lavenderTint: '#F1ECFB',
   trackOff: '#D8DEDB',
 };
+
+const HIJRI_METHODS: {value: HijriMethod; label: string; sub: string}[] = [
+  {value: 'HJCoSA', label: 'Saudi / Sighting', sub: 'Gulf, Europe & most of the West'},
+  {value: 'UAQ', label: 'Umm al-Qura', sub: 'Official Saudi printed calendar'},
+  {
+    value: 'MATHEMATICAL',
+    label: 'Calculated',
+    sub: 'Local sighting — Pakistan, India, Bangladesh',
+  },
+];
+
+function methodLabel(value: HijriMethod): string {
+  return HIJRI_METHODS.find(m => m.value === value)?.label ?? 'Saudi / Sighting';
+}
+
+function defaultHijriMethod(country: string): HijriMethod {
+  const c = country.trim().toLowerCase();
+  if (['pakistan', 'india', 'bangladesh'].some(x => c.includes(x))) {
+    return 'MATHEMATICAL';
+  }
+  if (
+    ['saudi', 'united arab emirates', 'uae', 'kuwait', 'qatar', 'bahrain', 'oman'].some(
+      x => c.includes(x),
+    )
+  ) {
+    return 'HJCoSA';
+  }
+  if (c.includes('malaysia')) {
+    return 'UAQ';
+  }
+  return 'HJCoSA';
+}
 
 function IconBadge({glyph, tint}: {glyph: string; tint: string}): React.JSX.Element {
   return (
@@ -71,6 +104,7 @@ function App(): React.JSX.Element {
   const [qiblaDirection, setQiblaDirection] = useState<number | null>(null);
   const [locationEditorVisible, setLocationEditorVisible] = useState(false);
   const [widgetHelpVisible, setWidgetHelpVisible] = useState(false);
+  const [hijriEditorVisible, setHijriEditorVisible] = useState(false);
   const [allPrayerTimesVisible, setAllPrayerTimesVisible] = useState(false);
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
   const [currentPrayerName, setCurrentPrayerName] = useState('--');
@@ -114,6 +148,23 @@ function App(): React.JSX.Element {
 
     load();
   }, []);
+
+  // Auto-pick a sensible Hijri calendar method from the country until the user
+  // overrides it (which sets hijriMethodAuto = false and locks their choice).
+  useEffect(() => {
+    if (loading || !settings.hijriMethodAuto) {
+      return;
+    }
+    const suggested = defaultHijriMethod(settings.country);
+    if (suggested !== settings.hijriCalendarMethod) {
+      setSettings(prev => ({...prev, hijriCalendarMethod: suggested}));
+    }
+  }, [
+    loading,
+    settings.hijriMethodAuto,
+    settings.country,
+    settings.hijriCalendarMethod,
+  ]);
 
   useEffect(() => {
     if (loading) {
@@ -577,6 +628,33 @@ function App(): React.JSX.Element {
     updateField('notificationsEnabled', true);
   };
 
+  const onChangeHijri = async (patch: Partial<AppSettings>) => {
+    const updated: AppSettings = {
+      ...settings,
+      city: settings.city.trim(),
+      country: settings.country.trim(),
+      widgetEnabled: true,
+      ...patch,
+    };
+    setSettings(updated);
+    // Persist + re-sync immediately (and suppress the debounced auto-save) so the
+    // new Hijri date is fetched and shown right away in both the app and widget.
+    lastPersistedSettingsRef.current = serializeSettings(updated);
+    try {
+      await saveSettings(updated);
+      await syncPrayerCache();
+      await refreshWidget();
+      const timings = await getTodayPrayerTimes();
+      setPrayerTimes(timings);
+      const tomorrow = await getPrayerTimesForDate(getDateIsoOffset(1)).catch(
+        () => null,
+      );
+      setDateFooterText(buildDateFooterText(timings, tomorrow));
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const qiblaArrowRotation =
     qiblaDirection === null ? 0 : (qiblaDirection - qiblaHeading + 360) % 360;
   const allPrayerRows = getAllPrayerRows(prayerTimes, new Date());
@@ -740,6 +818,23 @@ function App(): React.JSX.Element {
               </TouchableOpacity>
             </View>
           </View>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity
+            style={styles.row}
+            activeOpacity={0.6}
+            onPress={() => setHijriEditorVisible(true)}>
+            <IconBadge glyph="🌙" tint={C.lavenderTint} />
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>Hijri calendar</Text>
+              <Text style={styles.rowValue} numberOfLines={1}>
+                {methodLabel(settings.hijriCalendarMethod)}
+                {settings.hijriMethodAuto ? ' · Auto' : ''}
+              </Text>
+            </View>
+            <Text style={styles.chevron}>›</Text>
+          </TouchableOpacity>
 
           <View style={styles.divider} />
 
@@ -942,6 +1037,89 @@ function App(): React.JSX.Element {
               style={styles.ghostButton}
               onPress={() => setWidgetHelpVisible(false)}>
               <Text style={styles.ghostButtonText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={hijriEditorVisible}
+        onRequestClose={() => setHijriEditorVisible(false)}>
+        <View style={styles.centerOverlay}>
+          <View style={styles.dialog}>
+            <Text style={styles.dialogTitle}>Hijri calendar</Text>
+            <Text style={styles.dialogSubtitle}>
+              The Islamic date can differ by a day between regions. Pick the one
+              that matches your local moon sighting.
+            </Text>
+
+            {HIJRI_METHODS.map(opt => {
+              const active = settings.hijriCalendarMethod === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.choiceRow, active && styles.choiceRowActive]}
+                  activeOpacity={0.7}
+                  onPress={() =>
+                    onChangeHijri({
+                      hijriCalendarMethod: opt.value,
+                      hijriMethodAuto: false,
+                    })
+                  }>
+                  <View style={styles.choiceBody}>
+                    <Text
+                      style={[
+                        styles.choiceTitle,
+                        active && styles.choiceTitleActive,
+                      ]}>
+                      {opt.label}
+                    </Text>
+                    <Text style={styles.choiceSub}>{opt.sub}</Text>
+                  </View>
+                  {active && <Text style={styles.choiceCheck}>✓</Text>}
+                </TouchableOpacity>
+              );
+            })}
+
+            {settings.hijriCalendarMethod === 'MATHEMATICAL' && (
+              <View style={styles.advanced}>
+                <Text style={styles.advancedLabel}>
+                  ADVANCED · FINE-TUNE (DAYS)
+                </Text>
+                <View style={styles.stepper}>
+                  <TouchableOpacity
+                    style={styles.stepBtn}
+                    onPress={() =>
+                      onChangeHijri({
+                        hijriAdjustment: Math.max(-2, settings.hijriAdjustment - 1),
+                      })
+                    }>
+                    <Text style={styles.stepBtnText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.stepValue}>
+                    {settings.hijriAdjustment > 0
+                      ? `+${settings.hijriAdjustment}`
+                      : settings.hijriAdjustment}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.stepBtn}
+                    onPress={() =>
+                      onChangeHijri({
+                        hijriAdjustment: Math.min(2, settings.hijriAdjustment + 1),
+                      })
+                    }>
+                    <Text style={styles.stepBtnText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.ghostButton}
+              onPress={() => setHijriEditorVisible(false)}>
+              <Text style={styles.ghostButtonText}>Done</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1217,6 +1395,9 @@ function serializeSettings(value: AppSettings): string {
     school: value.school,
     notificationsEnabled: value.notificationsEnabled,
     widgetEnabled: true,
+    hijriCalendarMethod: value.hijriCalendarMethod,
+    hijriMethodAuto: value.hijriMethodAuto,
+    hijriAdjustment: value.hijriAdjustment,
   });
 }
 
@@ -1532,6 +1713,58 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF3F1',
   },
   ghostButtonText: {color: C.ink, fontWeight: '700', fontSize: 14.5},
+  choiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    marginBottom: 8,
+    backgroundColor: '#F4F7F5',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  choiceRowActive: {backgroundColor: C.mint, borderColor: '#BFE6D2'},
+  choiceBody: {flex: 1},
+  choiceTitle: {fontSize: 15, fontWeight: '700', color: C.ink},
+  choiceTitleActive: {color: C.primary},
+  choiceSub: {fontSize: 12, color: C.inkFaint, marginTop: 2},
+  choiceCheck: {fontSize: 17, fontWeight: '800', color: C.primary, marginLeft: 10},
+  advanced: {
+    marginTop: 6,
+    marginBottom: 2,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  advancedLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.inkFaint,
+    letterSpacing: 0.6,
+    flex: 1,
+  },
+  stepper: {flexDirection: 'row', alignItems: 'center', gap: 14},
+  stepBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: C.mint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnText: {fontSize: 20, fontWeight: '800', color: C.primary, marginTop: -2},
+  stepValue: {
+    minWidth: 26,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '800',
+    color: C.ink,
+    fontVariant: ['tabular-nums'],
+  },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',

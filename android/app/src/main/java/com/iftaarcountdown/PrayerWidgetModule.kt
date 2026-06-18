@@ -59,6 +59,9 @@ class PrayerWidgetModule(private val reactContext: ReactApplicationContext) :
         putInt("school", settings.school)
         putBoolean("notificationsEnabled", settings.notificationsEnabled)
         putBoolean("widgetEnabled", settings.widgetEnabled)
+        putString("hijriCalendarMethod", settings.hijriCalendarMethod)
+        putBoolean("hijriMethodAuto", settings.hijriMethodAuto)
+        putInt("hijriAdjustment", settings.hijriAdjustment)
       }
       promise.resolve(data)
     } catch (error: Exception) {
@@ -77,6 +80,9 @@ class PrayerWidgetModule(private val reactContext: ReactApplicationContext) :
       val school = if (input.hasKey("school")) input.getInt("school") else 1
       val notificationsEnabled = if (input.hasKey("notificationsEnabled")) input.getBoolean("notificationsEnabled") else false
       val widgetEnabled = if (input.hasKey("widgetEnabled")) input.getBoolean("widgetEnabled") else true
+      val hijriCalendarMethod = if (input.hasKey("hijriCalendarMethod")) input.getString("hijriCalendarMethod") ?: "HJCoSA" else "HJCoSA"
+      val hijriMethodAuto = if (input.hasKey("hijriMethodAuto")) input.getBoolean("hijriMethodAuto") else true
+      val hijriAdjustment = if (input.hasKey("hijriAdjustment")) input.getInt("hijriAdjustment") else 0
 
       WidgetSettings.save(
         context = reactContext,
@@ -87,7 +93,10 @@ class PrayerWidgetModule(private val reactContext: ReactApplicationContext) :
         useDeviceLocation = useDeviceLocation,
         school = school,
         notificationsEnabled = notificationsEnabled,
-        widgetEnabled = widgetEnabled
+        widgetEnabled = widgetEnabled,
+        hijriCalendarMethod = hijriCalendarMethod,
+        hijriMethodAuto = hijriMethodAuto,
+        hijriAdjustment = hijriAdjustment
       )
 
       PrayerTimesCache.syncNow(reactContext)

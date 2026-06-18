@@ -1,3 +1,5 @@
+export type HijriMethod = 'HJCoSA' | 'UAQ' | 'MATHEMATICAL';
+
 export type AppSettings = {
   city: string;
   country: string;
@@ -7,6 +9,9 @@ export type AppSettings = {
   school: number;
   notificationsEnabled: boolean;
   widgetEnabled: boolean;
+  hijriCalendarMethod: HijriMethod;
+  hijriMethodAuto: boolean;
+  hijriAdjustment: number;
 };
 
 export type DetectedLocation = {
@@ -25,4 +30,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   school: 1,
   notificationsEnabled: false,
   widgetEnabled: true,
+  hijriCalendarMethod: 'HJCoSA',
+  hijriMethodAuto: true,
+  hijriAdjustment: 0,
 };
