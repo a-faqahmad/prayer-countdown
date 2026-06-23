@@ -366,6 +366,18 @@ object PrayerWidgetUpdater {
     views.setOnClickPendingIntent(R.id.widgetRoot, pendingIntent)
   }
 
+  private fun buildOpenAppPendingIntent(context: Context): PendingIntent? {
+    val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+      ?: return null
+    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    return PendingIntent.getActivity(
+      context,
+      4002,
+      launchIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+  }
+
   private fun maybeShowPrayerNotification(context: Context, settings: UserSettings, state: WidgetState) {
     if (!settings.notificationsEnabled) {
       return
@@ -384,6 +396,8 @@ object PrayerWidgetUpdater {
 
     createNotificationChannel(context)
 
+    val contentIntent = buildOpenAppPendingIntent(context)
+
     val notification = NotificationCompat.Builder(context, CHANNEL_ID)
       .setSmallIcon(R.mipmap.ic_launcher)
       .setContentTitle("Prayer time")
@@ -391,6 +405,11 @@ object PrayerWidgetUpdater {
       .setPriority(NotificationCompat.PRIORITY_HIGH)
       .setAutoCancel(true)
       .setDefaults(NotificationCompat.DEFAULT_SOUND)
+      .apply {
+        if (contentIntent != null) {
+          setContentIntent(contentIntent)
+        }
+      }
       .build()
 
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

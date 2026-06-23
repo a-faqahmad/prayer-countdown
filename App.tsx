@@ -926,39 +926,6 @@ function App(): React.JSX.Element {
               </ScrollView>
             )}
 
-            <View style={styles.fieldRow}>
-              <View style={styles.fieldHalf}>
-                <Text style={styles.fieldLabel}>CITY</Text>
-                <TextInput
-                  style={styles.input}
-                  value={settings.city}
-                  onChangeText={value => {
-                    updateField('city', value);
-                    updateField('useDeviceLocation', false);
-                    updateField('latitude', null);
-                    updateField('longitude', null);
-                  }}
-                  placeholder="City"
-                  placeholderTextColor={C.inkFaint}
-                />
-              </View>
-              <View style={styles.fieldHalf}>
-                <Text style={styles.fieldLabel}>COUNTRY</Text>
-                <TextInput
-                  style={styles.input}
-                  value={settings.country}
-                  onChangeText={value => {
-                    updateField('country', value);
-                    updateField('useDeviceLocation', false);
-                    updateField('latitude', null);
-                    updateField('longitude', null);
-                  }}
-                  placeholder="Country"
-                  placeholderTextColor={C.inkFaint}
-                />
-              </View>
-            </View>
-
             <TouchableOpacity
               style={styles.primaryButton}
               activeOpacity={0.85}
@@ -1729,8 +1696,6 @@ const styles = StyleSheet.create({
   },
   suggestionDot: {fontSize: 13, color: C.primaryBright},
   suggestionText: {fontSize: 13.5, color: '#33403A', fontWeight: '500'},
-  fieldRow: {flexDirection: 'row', gap: 12},
-  fieldHalf: {flex: 1},
   primaryButton: {
     backgroundColor: C.ink,
     borderRadius: 14,
