@@ -25,7 +25,9 @@ react {
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
+    //   Pinned to an absolute path so production builds work when Android Studio is
+    //   launched from the Dock/Finder (which does not load nvm from the shell).
+    nodeExecutableAndArgs = ["/usr/local/bin/node"]
     //
     //   The command to run when bundling. By default is 'bundle'
     // bundleCommand = "ram-bundle"
