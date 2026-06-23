@@ -64,13 +64,10 @@ pnpm-debug.log*
 /vendor/bundle/
 
 # Environment files (local only)
-.env
-.env.*
 !.env.example
 
 # Editor / OS local files
 .idea/
-.vscode/
 *.orig
 
 # Temporary files created by Metro to check the health of the file watcher
@@ -88,3 +85,5 @@ pnpm-debug.log*
 !.yarn/versions
 temp_auto_push.bat
 temp_interactive_push.bat
+branch_structure.json
+config.bat
